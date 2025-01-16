@@ -10,8 +10,8 @@ import {
   SafeAreaView,
   Platform,
   StatusBar,
-  TouchableOpacity, // Add this
-  Modal, // Add this too
+  TouchableOpacity,
+  Modal,
 } from "react-native";
 
 interface RouteData {
@@ -37,6 +37,7 @@ interface StopInfo {
   name_en: string;
   lat: number;
   long: number;
+  eta?: string[]; // Added ETA field
 }
 
 export default function Route() {
@@ -52,7 +53,6 @@ export default function Route() {
     fetchRoutes();
   }, []);
 
-  // Filter routes when search query changes
   useEffect(() => {
     filterRoutes();
   }, [searchQuery, routes]);
@@ -75,28 +75,13 @@ export default function Route() {
   const fetchStopsForRoute = async (route: RouteData) => {
     setLoadingStops(true);
     try {
-      // Convert outbound/inbound to O/I
       const direction = route.bound === "O" ? "outbound" : "inbound";
-      console.log(
-        "Direction for API:",
-        route.route,
-        direction,
-        route.service_type
-      );
 
-      // First fetch route stops
       const routeStopsResponse = await fetch(
         `https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${route.route}/${direction}/${route.service_type}`
       );
       const routeStopsJson = await routeStopsResponse.json();
 
-      if (routeStopsJson.code === 422) {
-        console.error("API Error:", routeStopsJson.message);
-        setStopsList([]);
-        return;
-      }
-
-      // Add validation to check if data exists and is an array
       if (!routeStopsJson.data || !Array.isArray(routeStopsJson.data)) {
         console.error("Invalid route stops data:", routeStopsJson);
         setStopsList([]);
@@ -105,14 +90,28 @@ export default function Route() {
 
       const stops: StopData[] = routeStopsJson.data;
 
-      // Then fetch details for each stop
       const stopsPromises = stops.map(async (stop) => {
         try {
           const stopResponse = await fetch(
             `https://data.etabus.gov.hk/v1/transport/kmb/stop/${stop.stop}`
           );
           const stopJson = await stopResponse.json();
-          return stopJson.data;
+
+          const etaResponse = await fetch(
+            `https://data.etabus.gov.hk/v1/transport/kmb/eta/${stop.stop}/${route.route}/${route.service_type}`
+          );
+          const etaJson = await etaResponse.json();
+
+          const etaTimes = etaJson.data
+            ? etaJson.data.map((eta: any) => {
+                const etaTime = new Date(eta.eta);
+                const currentTime = new Date();
+                const timeDiff = Math.round((etaTime.getTime() - currentTime.getTime()) / 60000);
+                return timeDiff > 0 ? `${timeDiff} min` : "Arriving soon";
+              })
+            : [];
+
+          return { ...stopJson.data, eta: etaTimes };
         } catch (error) {
           console.error(`Error fetching stop ${stop.stop}:`, error);
           return null;
@@ -206,8 +205,7 @@ export default function Route() {
               <Text style={styles.closeButtonText}>Close</Text>
             </TouchableOpacity>
             <Text style={styles.modalTitle}>
-              Route {selectedRoute.route} Stops -{" "}
-              {selectedRoute.bound === "O" ? "Outbound" : "Inbound"}
+              Route {selectedRoute.route} Stops - {selectedRoute.bound === "O" ? "Outbound" : "Inbound"}
             </Text>
           </View>
 
@@ -218,9 +216,6 @@ export default function Route() {
               <Text style={styles.emptyText}>
                 No stops found for route {selectedRoute.route} (
                 {selectedRoute.bound === "O" ? "Outbound" : "Inbound"}).
-                {"\n\n"}
-                This could be because the route doesn't operate in this
-                direction or there was an error loading the data.
               </Text>
             </View>
           ) : (
@@ -232,6 +227,13 @@ export default function Route() {
                   <Text style={styles.stopNumber}>Stop {index + 1}</Text>
                   <Text style={styles.stopName}>{item.name_en}</Text>
                   <Text style={styles.stopNameChinese}>{item.name_tc}</Text>
+                  {item.eta && item.eta.length > 0 ? (
+                    <Text style={styles.etaText}>
+                      ETA: {item.eta.join(", ")}
+                    </Text>
+                  ) : (
+                    <Text style={styles.etaText}>ETA: N/A</Text>
+                  )}
                 </View>
               )}
               ItemSeparatorComponent={() => <View style={styles.separator} />}
@@ -393,6 +395,11 @@ const styles = StyleSheet.create({
   stopName: {
     fontSize: 16,
     color: "#34495e",
+    marginTop: 4,
+  },
+  etaText: {
+    fontSize: 14,
+    color: "#e67e22",
     marginTop: 4,
   },
   stopNameChinese: {
