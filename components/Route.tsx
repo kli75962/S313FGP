@@ -41,6 +41,8 @@ interface StopInfo {
 }
 
 export default function Route() {
+  const [currentRouteForRefresh, setCurrentRouteForRefresh] =
+    useState<RouteData | null>(null);
   const [selectedRoute, setSelectedRoute] = useState<RouteData | null>(null);
   const [stopsList, setStopsList] = useState<StopInfo[]>([]);
   const [loadingStops, setLoadingStops] = useState(false);
@@ -56,6 +58,45 @@ export default function Route() {
   useEffect(() => {
     filterRoutes();
   }, [searchQuery, routes]);
+
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout;
+
+    if (currentRouteForRefresh && selectedRoute) {
+      // Initial fetch
+      const direction =
+        currentRouteForRefresh.bound === "O" ? "outbound" : "inbound";
+      fetch(
+        `https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${currentRouteForRefresh.route}/${direction}/${currentRouteForRefresh.service_type}`
+      )
+        .then((response) => response.json())
+        .then((json) => {
+          if (json.data && Array.isArray(json.data)) {
+            updateETAs(json.data, currentRouteForRefresh);
+          }
+        });
+
+      // Set up interval for updates
+      intervalId = setInterval(() => {
+        fetch(
+          `https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${currentRouteForRefresh.route}/${direction}/${currentRouteForRefresh.service_type}`
+        )
+          .then((response) => response.json())
+          .then((json) => {
+            if (json.data && Array.isArray(json.data)) {
+              updateETAs(json.data, currentRouteForRefresh);
+            }
+          });
+      }, 20000); // 20 seconds
+    }
+
+    // Cleanup function
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [currentRouteForRefresh, selectedRoute]);
 
   const fetchRoutes = async () => {
     try {
@@ -74,6 +115,7 @@ export default function Route() {
 
   const fetchStopsForRoute = async (route: RouteData) => {
     setLoadingStops(true);
+    setCurrentRouteForRefresh(route); // Store the current route for refreshing
     try {
       const direction = route.bound === "O" ? "outbound" : "inbound";
 
@@ -90,44 +132,50 @@ export default function Route() {
 
       const stops: StopData[] = routeStopsJson.data;
 
-      const stopsPromises = stops.map(async (stop) => {
-        try {
-          const stopResponse = await fetch(
-            `https://data.etabus.gov.hk/v1/transport/kmb/stop/${stop.stop}`
-          );
-          const stopJson = await stopResponse.json();
-
-          const etaResponse = await fetch(
-            `https://data.etabus.gov.hk/v1/transport/kmb/eta/${stop.stop}/${route.route}/${route.service_type}`
-          );
-          const etaJson = await etaResponse.json();
-
-          const etaTimes = etaJson.data
-            ? etaJson.data.map((eta: any) => {
-                const etaTime = new Date(eta.eta);
-                const currentTime = new Date();
-                const timeDiff = Math.round((etaTime.getTime() - currentTime.getTime()) / 60000);
-                return timeDiff > 0 ? `${timeDiff} min` : "Arriving soon";
-              })
-            : [];
-
-          return { ...stopJson.data, eta: etaTimes };
-        } catch (error) {
-          console.error(`Error fetching stop ${stop.stop}:`, error);
-          return null;
-        }
-      });
-
-      const stopsInfo = (await Promise.all(stopsPromises)).filter(
-        (stop) => stop !== null
-      );
-      setStopsList(stopsInfo);
+      await updateETAs(stops, route);
     } catch (error) {
       console.error("Error fetching stops:", error);
       setStopsList([]);
     } finally {
       setLoadingStops(false);
     }
+  };
+
+  const updateETAs = async (stops: StopData[], route: RouteData) => {
+    const stopsPromises = stops.map(async (stop) => {
+      try {
+        const stopResponse = await fetch(
+          `https://data.etabus.gov.hk/v1/transport/kmb/stop/${stop.stop}`
+        );
+        const stopJson = await stopResponse.json();
+
+        const etaResponse = await fetch(
+          `https://data.etabus.gov.hk/v1/transport/kmb/eta/${stop.stop}/${route.route}/${route.service_type}`
+        );
+        const etaJson = await etaResponse.json();
+
+        const etaTimes = etaJson.data
+          ? etaJson.data.slice(0, 3).map((eta: any) => {
+              const etaTime = new Date(eta.eta);
+              const currentTime = new Date();
+              const timeDiff = Math.round(
+                (etaTime.getTime() - currentTime.getTime()) / 60000
+              );
+              return timeDiff > 0 ? `${timeDiff} mins` : "Arriving soon";
+            })
+          : [];
+
+        return { ...stopJson.data, eta: etaTimes };
+      } catch (error) {
+        console.error(`Error fetching stop ${stop.stop}:`, error);
+        return null;
+      }
+    });
+
+    const stopsInfo = (await Promise.all(stopsPromises)).filter(
+      (stop) => stop !== null
+    );
+    setStopsList(stopsInfo);
   };
 
   const filterRoutes = () => {
@@ -190,6 +238,7 @@ export default function Route() {
         animationType="slide"
         onRequestClose={() => {
           setSelectedRoute(null);
+          setCurrentRouteForRefresh(null); // Clear the refresh state
           setStopsList([]);
         }}
       >
@@ -198,6 +247,7 @@ export default function Route() {
             <TouchableOpacity
               onPress={() => {
                 setSelectedRoute(null);
+                setCurrentRouteForRefresh(null); // Clear the refresh state
                 setStopsList([]);
               }}
               style={styles.closeButton}
@@ -205,7 +255,8 @@ export default function Route() {
               <Text style={styles.closeButtonText}>Close</Text>
             </TouchableOpacity>
             <Text style={styles.modalTitle}>
-              Route {selectedRoute.route} Stops - {selectedRoute.bound === "O" ? "Outbound" : "Inbound"}
+              Route {selectedRoute.route} Stops -{" "}
+              {selectedRoute.bound === "O" ? "Outbound" : "Inbound"}
             </Text>
           </View>
 
