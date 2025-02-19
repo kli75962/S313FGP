@@ -40,9 +40,7 @@ interface StopInfo {
   seq: number[];
   eta?: string[]; // Added ETA field
 }
-
 let count = 0;
-
 export default function Route() {
   const [currentRouteForRefresh, setCurrentRouteForRefresh] =
     useState<RouteData | null>(null);
@@ -64,35 +62,35 @@ export default function Route() {
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
-
+  
     if (currentRouteForRefresh && selectedRoute) {
-      // Initial fetch
-      const direction =
-        currentRouteForRefresh.bound === "O" ? "outbound" : "inbound";
-      fetch(
-        `https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${currentRouteForRefresh.route}/${direction}/${currentRouteForRefresh.service_type}`
-      )
-        .then((response) => response.json())
-        .then((json) => {
+      const direction = currentRouteForRefresh.bound === "O" ? "outbound" : "inbound";
+  
+      // Function to fetch and update ETAs sequentially
+      const fetchAndUpdateETAs = async () => {
+        try {
+          // Fetch stop list
+          const response = await fetch(
+            `https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${currentRouteForRefresh.route}/${direction}/${currentRouteForRefresh.service_type}`
+          );
+          const json = await response.json();
+  
           if (json.data && Array.isArray(json.data)) {
-            updateETAs(json.data, currentRouteForRefresh);
+            console.log("Fetched stop list successfully");
+            await updateETAs(json.data, currentRouteForRefresh); // Process stops sequentially
           }
-        });
-
+        } catch (error) {
+          console.error("Error fetching route stops:", error);
+        }
+      };
+  
+      // Initial fetch
+      fetchAndUpdateETAs();
+  
       // Set up interval for updates
-      intervalId = setInterval(() => {
-        fetch(
-          `https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${currentRouteForRefresh.route}/${direction}/${currentRouteForRefresh.service_type}`
-        )
-          .then((response) => response.json())
-          .then((json) => {
-            if (json.data && Array.isArray(json.data)) {
-              updateETAs(json.data, currentRouteForRefresh);
-            }
-          });
-      }, 20000); // 20 seconds
+      intervalId = setInterval(fetchAndUpdateETAs, 20000); // 20 seconds
     }
-
+  
     // Cleanup function
     return () => {
       if (intervalId) {
@@ -100,6 +98,7 @@ export default function Route() {
       }
     };
   }, [currentRouteForRefresh, selectedRoute]);
+  
 
   const fetchRoutes = async () => {
     try {
@@ -145,62 +144,46 @@ export default function Route() {
   };
 
   const updateETAs = async (stops: StopData[], route: RouteData) => {
-    count = 0;
-    try {
-      const stopsInfo = [];
+    let stopsInfo: any[] = [];
   
-      // Process stops sequentially
-      for (const stop of stops) {
-        try {
-          // Fetch stop information
-          const stopResponse = await fetch(
-            `https://data.etabus.gov.hk/v1/transport/kmb/stop/${stop.stop}`
-          );
-          const stopJson = await stopResponse.json();
+    for (const [index, stop] of stops.entries()) {
+      try {
+        // Fetch stop details
+        const stopResponse = await fetch(
+          `https://data.etabus.gov.hk/v1/transport/kmb/stop/${stop.stop}`
+        );
+        const stopJson = await stopResponse.json();
   
-          // Fetch ETA information
-          const etaResponse = await fetch(
-            `https://data.etabus.gov.hk/v1/transport/kmb/eta/${stop.stop}/${route.route}/${route.service_type}`
-          );
-          const etaJson = await etaResponse.json();
-          count++;
+        // Fetch ETA for the stop
+        const etaResponse = await fetch(
+          `https://data.etabus.gov.hk/v1/transport/kmb/eta/${stop.stop}/${route.route}/${route.service_type}`
+        );
+        const etaJson = await etaResponse.json();
   
-          // Process ETA times
-          const etaTimes = etaJson.data
-            ? etaJson.data.map((eta: any) => {
-              if(eta.seq === count){
-
+        // Process ETA data
+        const etaTimes = etaJson.data
+          ? etaJson.data
+              .filter((eta: any) => eta.seq === index + 1) // Ensure correct sequence
+              .map((eta: any) => {
                 const etaTime = new Date(eta.eta);
                 const currentTime = new Date();
                 const timeDiff = Math.round(
                   (etaTime.getTime() - currentTime.getTime()) / 60000
                 );
-                console.log(eta.seq, count);
-                return timeDiff > 0 ? `${timeDiff} min` : "Arriving soon";
-
-              }else{};
+                return timeDiff > 0 ? `${timeDiff} mins` : "Arriving soon";
               })
-            : [];
+          : [];
   
-          // Add processed stop info to array
-          stopsInfo.push({ ...stopJson.data, eta: etaTimes });
-        } catch (error) {
-          console.error(`Error processing stop ${stop.stop}:`, error);
-          continue;
-        }
-      }
+        stopsInfo.push({ ...stopJson.data, eta: etaTimes });
   
-      // Update state only after all stops are processed
-      if (stopsInfo.length > 0) {
-        setStopsList(stopsInfo);
+        console.log(`Fetched ETA for stop ${stop.stop} (${index + 1}/${stops.length})`);
+      } catch (error) {
+        console.error(`Error fetching stop ${stop.stop}:`, error);
       }
-    } catch (error) {
-      console.error("Error in updateETAs:", error);
-      setStopsList([]);
     }
-  };
   
-
+    setStopsList(stopsInfo);
+  };
 
   const filterRoutes = () => {
     const query = searchQuery.toLowerCase().trim();
