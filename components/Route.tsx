@@ -37,8 +37,11 @@ interface StopInfo {
   name_en: string;
   lat: number;
   long: number;
+  seq: number[];
   eta?: string[]; // Added ETA field
 }
+
+let count = 0;
 
 export default function Route() {
   const [currentRouteForRefresh, setCurrentRouteForRefresh] =
@@ -142,41 +145,62 @@ export default function Route() {
   };
 
   const updateETAs = async (stops: StopData[], route: RouteData) => {
-    const stopsPromises = stops.map(async (stop) => {
-      try {
-        const stopResponse = await fetch(
-          `https://data.etabus.gov.hk/v1/transport/kmb/stop/${stop.stop}`
-        );
-        const stopJson = await stopResponse.json();
+    count = 0;
+    try {
+      const stopsInfo = [];
+  
+      // Process stops sequentially
+      for (const stop of stops) {
+        try {
+          // Fetch stop information
+          const stopResponse = await fetch(
+            `https://data.etabus.gov.hk/v1/transport/kmb/stop/${stop.stop}`
+          );
+          const stopJson = await stopResponse.json();
+  
+          // Fetch ETA information
+          const etaResponse = await fetch(
+            `https://data.etabus.gov.hk/v1/transport/kmb/eta/${stop.stop}/${route.route}/${route.service_type}`
+          );
+          const etaJson = await etaResponse.json();
+          count++;
+  
+          // Process ETA times
+          const etaTimes = etaJson.data
+            ? etaJson.data.map((eta: any) => {
+              if(eta.seq === count){
 
-        const etaResponse = await fetch(
-          `https://data.etabus.gov.hk/v1/transport/kmb/eta/${stop.stop}/${route.route}/${route.service_type}`
-        );
-        const etaJson = await etaResponse.json();
+                const etaTime = new Date(eta.eta);
+                const currentTime = new Date();
+                const timeDiff = Math.round(
+                  (etaTime.getTime() - currentTime.getTime()) / 60000
+                );
+                console.log(eta.seq, count);
+                return timeDiff > 0 ? `${timeDiff} min` : "Arriving soon";
 
-        const etaTimes = etaJson.data
-          ? etaJson.data.slice(0, 3).map((eta: any) => {
-              const etaTime = new Date(eta.eta);
-              const currentTime = new Date();
-              const timeDiff = Math.round(
-                (etaTime.getTime() - currentTime.getTime()) / 60000
-              );
-              return timeDiff > 0 ? `${timeDiff} mins` : "Arriving soon";
-            })
-          : [];
-
-        return { ...stopJson.data, eta: etaTimes };
-      } catch (error) {
-        console.error(`Error fetching stop ${stop.stop}:`, error);
-        return null;
+              }else{};
+              })
+            : [];
+  
+          // Add processed stop info to array
+          stopsInfo.push({ ...stopJson.data, eta: etaTimes });
+        } catch (error) {
+          console.error(`Error processing stop ${stop.stop}:`, error);
+          continue;
+        }
       }
-    });
-
-    const stopsInfo = (await Promise.all(stopsPromises)).filter(
-      (stop) => stop !== null
-    );
-    setStopsList(stopsInfo);
+  
+      // Update state only after all stops are processed
+      if (stopsInfo.length > 0) {
+        setStopsList(stopsInfo);
+      }
+    } catch (error) {
+      console.error("Error in updateETAs:", error);
+      setStopsList([]);
+    }
   };
+  
+
 
   const filterRoutes = () => {
     const query = searchQuery.toLowerCase().trim();
