@@ -1,13 +1,12 @@
-// app/(tabs)/Wishlists.tsx
+// app/(tabs)/routes.tsx
 import React from "react";
 import { View, StyleSheet } from "react-native";
 import Wishlist from '@/components/Wishlist';
 
-export default function WishlistScreen(): JSX.Element {
+export default function RouteScreen(): JSX.Element {
   return (
     <View style={styles.container}>
       <Wishlist />
-
     </View>
   );
 }

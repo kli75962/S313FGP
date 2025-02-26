@@ -1,5 +1,9 @@
 // components/Route.tsx
 import React, { useEffect, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { MaterialIcons } from "@expo/vector-icons";
+
+
 import {
   View,
   Text,
@@ -51,9 +55,26 @@ export default function Route() {
   const [filteredRoutes, setFilteredRoutes] = useState<RouteData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [favorites, setFavorites] = useState<string[]>([]);
+
+  const toggleFavorite = async (routeId: string) => {
+    try {
+      const updatedFavorites = favorites.includes(routeId)
+        ? favorites.filter((id) => id !== routeId) // Remove if already in favorites
+        : [...favorites, routeId]; // Add to favorites
+
+      setFavorites(updatedFavorites); // Update state first
+      await AsyncStorage.setItem("favorites", JSON.stringify(updatedFavorites));
+
+      console.log("Updated favorites:", updatedFavorites);
+    } catch (error) {
+      console.error("Error saving favorites:", error);
+    }
+  };
 
   useEffect(() => {
     fetchRoutes();
+    loadFavorites();
   }, []);
 
   useEffect(() => {
@@ -62,10 +83,10 @@ export default function Route() {
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
-  
+
     if (currentRouteForRefresh && selectedRoute) {
       const direction = currentRouteForRefresh.bound === "O" ? "outbound" : "inbound";
-  
+
       // Function to fetch and update ETAs sequentially
       const fetchAndUpdateETAs = async () => {
         try {
@@ -74,7 +95,7 @@ export default function Route() {
             `https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${currentRouteForRefresh.route}/${direction}/${currentRouteForRefresh.service_type}`
           );
           const json = await response.json();
-  
+
           if (json.data && Array.isArray(json.data)) {
             console.log("Fetched stop list successfully");
             await updateETAs(json.data, currentRouteForRefresh); // Process stops sequentially
@@ -83,14 +104,14 @@ export default function Route() {
           console.error("Error fetching route stops:", error);
         }
       };
-  
+
       // Initial fetch
       fetchAndUpdateETAs();
-  
+
       // Set up interval for updates
       intervalId = setInterval(fetchAndUpdateETAs, 20000); // 20 seconds
     }
-  
+
     // Cleanup function
     return () => {
       if (intervalId) {
@@ -98,7 +119,7 @@ export default function Route() {
       }
     };
   }, [currentRouteForRefresh, selectedRoute]);
-  
+
 
   const fetchRoutes = async () => {
     try {
@@ -114,6 +135,21 @@ export default function Route() {
       setLoading(false);
     }
   };
+
+  const loadFavorites = async () => {
+    try {
+      const storedFavorites = await AsyncStorage.getItem("favorites");
+      if (storedFavorites) {
+        setFavorites(JSON.parse(storedFavorites));
+        console.log("Loaded favorites:", JSON.parse(storedFavorites));
+      }
+    } catch (error) {
+      console.error("Error loading favorites:", error);
+    }
+  };
+
+
+
 
   const fetchStopsForRoute = async (route: RouteData) => {
     setLoadingStops(true);
@@ -145,7 +181,7 @@ export default function Route() {
 
   const updateETAs = async (stops: StopData[], route: RouteData) => {
     let stopsInfo: any[] = [];
-  
+
     for (const [index, stop] of stops.entries()) {
       try {
         // Fetch stop details
@@ -153,35 +189,35 @@ export default function Route() {
           `https://data.etabus.gov.hk/v1/transport/kmb/stop/${stop.stop}`
         );
         const stopJson = await stopResponse.json();
-  
+
         // Fetch ETA for the stop
         const etaResponse = await fetch(
           `https://data.etabus.gov.hk/v1/transport/kmb/eta/${stop.stop}/${route.route}/${route.service_type}`
         );
         const etaJson = await etaResponse.json();
-  
+
         // Process ETA data
         const etaTimes = etaJson.data
           ? etaJson.data
-              .filter((eta: any) => eta.seq === index + 1) // Ensure correct sequence
-              .map((eta: any) => {
-                const etaTime = new Date(eta.eta);
-                const currentTime = new Date();
-                const timeDiff = Math.round(
-                  (etaTime.getTime() - currentTime.getTime()) / 60000
-                );
-                return timeDiff > 0 ? `${timeDiff} mins` : "Arriving soon";
-              })
+            .filter((eta: any) => eta.seq === index + 1) // Ensure correct sequence
+            .map((eta: any) => {
+              const etaTime = new Date(eta.eta);
+              const currentTime = new Date();
+              const timeDiff = Math.round(
+                (etaTime.getTime() - currentTime.getTime()) / 60000
+              );
+              return timeDiff > 0 ? `${timeDiff} mins` : "Arriving soon";
+            })
           : [];
-  
+
         stopsInfo.push({ ...stopJson.data, eta: etaTimes });
-  
+
         console.log(`Fetched ETA for stop ${stop.stop} (${index + 1}/${stops.length})`);
       } catch (error) {
         console.error(`Error fetching stop ${stop.stop}:`, error);
       }
     }
-  
+
     setStopsList(stopsInfo);
   };
 
@@ -191,7 +227,6 @@ export default function Route() {
       setFilteredRoutes(routes);
       return;
     }
-
     const filtered = routes.filter(
       (route) =>
         route.route.toLowerCase().includes(query) ||
@@ -225,6 +260,14 @@ export default function Route() {
         fetchStopsForRoute(item);
       }}
     >
+      <TouchableOpacity onPress={() => toggleFavorite(item.route)}>
+        <MaterialIcons
+          name={favorites.includes(item.route) ? "star" : "star-border"}
+          size={24}
+          color={favorites.includes(item.route) ? "gold" : "gray"}
+        />
+      </TouchableOpacity>
+
       <Text style={styles.routeNumber}>Route {item.route}</Text>
       <View style={styles.routeDetails}>
         <Text style={styles.routeText}>From: {item.orig_en}</Text>
@@ -235,6 +278,7 @@ export default function Route() {
       </View>
     </TouchableOpacity>
   );
+
 
   const renderStopsList = () => {
     if (!selectedRoute) return null;
@@ -348,6 +392,8 @@ const styles = StyleSheet.create({
     // Add padding top for Android
     paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 0,
   },
+
+
   content: {
     flex: 1,
   },
