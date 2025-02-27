@@ -17,6 +17,7 @@ import {
   TouchableOpacity,
   Modal,
 } from "react-native";
+//import { Route } from "expo-router";
 
 interface RouteData {
   route: string;
@@ -44,8 +45,16 @@ interface StopInfo {
   seq: number[];
   eta?: string[]; // Added ETA field
 }
+
+interface FavoriteRoute {
+  routeId: string;
+  bound: string;
+}
+
+
 let count = 0;
 export default function Route() {
+
   const [currentRouteForRefresh, setCurrentRouteForRefresh] =
     useState<RouteData | null>(null);
   const [selectedRoute, setSelectedRoute] = useState<RouteData | null>(null);
@@ -55,13 +64,15 @@ export default function Route() {
   const [filteredRoutes, setFilteredRoutes] = useState<RouteData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [favorites, setFavorites] = useState<string[]>([]);
+  const [favorites, setFavorites] = useState<FavoriteRoute[]>([]);
 
-  const toggleFavorite = async (routeId: string) => {
+  const toggleFavorite = async (routeId: string, bound: string) => {
     try {
-      const updatedFavorites = favorites.includes(routeId)
-        ? favorites.filter((id) => id !== routeId) // Remove if already in favorites
-        : [...favorites, routeId]; // Add to favorites
+      const exists = favorites.some((fav) => fav.routeId === routeId && fav.bound === bound);
+
+      const updatedFavorites = exists
+        ? favorites.filter((fav) => !(fav.routeId === routeId && fav.bound === bound)) // Remove if already in favorites
+        : [...favorites, { routeId, bound }]; // Add to favorites
 
       setFavorites(updatedFavorites); // Update state first
       await AsyncStorage.setItem("favorites", JSON.stringify(updatedFavorites));
@@ -71,6 +82,7 @@ export default function Route() {
       console.error("Error saving favorites:", error);
     }
   };
+
 
   useEffect(() => {
     fetchRoutes();
@@ -123,9 +135,12 @@ export default function Route() {
 
   const fetchRoutes = async () => {
     try {
-      const response = await fetch(
-        "https://data.etabus.gov.hk/v1/transport/kmb/route/"
-      );
+      const response = await fetch("https://data.etabus.gov.hk/v1/transport/kmb/route/");
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
+
       const json = await response.json();
       setRoutes(json.data);
       setFilteredRoutes(json.data);
@@ -135,6 +150,7 @@ export default function Route() {
       setLoading(false);
     }
   };
+
 
   const loadFavorites = async () => {
     try {
@@ -260,22 +276,23 @@ export default function Route() {
         fetchStopsForRoute(item);
       }}
     >
-      <TouchableOpacity onPress={() => toggleFavorite(item.route)}>
-        <MaterialIcons
-          name={favorites.includes(item.route) ? "star" : "star-border"}
-          size={24}
-          color={favorites.includes(item.route) ? "gold" : "gray"}
-        />
-      </TouchableOpacity>
-
-      <Text style={styles.routeNumber}>Route {item.route}</Text>
+      <Text style={styles.routeNumber}> {item.route}</Text>
       <View style={styles.routeDetails}>
         <Text style={styles.routeText}>From: {item.orig_en}</Text>
         <Text style={styles.routeText}>To: {item.dest_en}</Text>
-        <Text style={styles.directionText}>
-          Direction: {item.bound === "O" ? "Outbound" : "Inbound"}
-        </Text>
+
       </View>
+
+      <TouchableOpacity onPress={() => toggleFavorite(item.route, item.bound)}>
+        <MaterialIcons
+          name={favorites.some((fav) => fav.routeId === item.route && fav.bound === item.bound) ? "star" : "star-border"}
+          size={24}
+          style={styles.icons}
+          color={favorites.some((fav) => fav.routeId === item.route && fav.bound === item.bound) ? "gold" : "gray"}
+        />
+
+      </TouchableOpacity>
+
     </TouchableOpacity>
   );
 
@@ -306,8 +323,8 @@ export default function Route() {
               <Text style={styles.closeButtonText}>Close</Text>
             </TouchableOpacity>
             <Text style={styles.modalTitle}>
-              Route {selectedRoute.route} Stops -{" "}
-              {selectedRoute.bound === "O" ? "Outbound" : "Inbound"}
+              {selectedRoute.route} To
+              {selectedRoute.dest_en}
             </Text>
           </View>
 
@@ -386,13 +403,37 @@ export default function Route() {
 }
 
 const styles = StyleSheet.create({
+
+  icons: {
+    right: 10
+  },
+  routeItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "white",
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#ddd",
+  },
+  routeNumber: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#2c3e50",
+    width: 40, // Fixed width to align properly
+    textAlign: "center",
+  },
+  etaText: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#007AFF",
+  },
   container: {
     flex: 1,
     backgroundColor: "#f5f5f5",
     // Add padding top for Android
     paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 0,
   },
-
 
   content: {
     flex: 1,
@@ -421,26 +462,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  routeItem: {
-    backgroundColor: "white",
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 8,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.23,
-    shadowRadius: 2.62,
-    elevation: 4,
-  },
-  routeNumber: {
-    fontSize: 20,
-    fontWeight: "bold",
-    marginBottom: 8,
-    color: "#2c3e50",
-  },
+
   routeDetails: {
     gap: 4,
   },
@@ -501,11 +523,7 @@ const styles = StyleSheet.create({
     color: "#34495e",
     marginTop: 4,
   },
-  etaText: {
-    fontSize: 14,
-    color: "#e67e22",
-    marginTop: 4,
-  },
+
   stopNameChinese: {
     fontSize: 14,
     color: "#7f8c8d",

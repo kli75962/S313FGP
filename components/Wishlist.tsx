@@ -1,14 +1,17 @@
 // components/Wishlist.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { View, Text, FlatList, StyleSheet, TouchableOpacity, SafeAreaView } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { MaterialIcons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 
-import { useFocusEffect } from '@react-navigation/native';
-import { useCallback } from 'react';
+interface FavoriteRoute {
+  routeId: string;
+  bound: string;
+}
 
 export default function Wishlist() {
-  const [favorites, setFavorites] = useState<string[]>([]);
+  const [favorites, setFavorites] = useState<FavoriteRoute[]>([]);
 
   useFocusEffect(
     useCallback(() => {
@@ -27,16 +30,16 @@ export default function Wishlist() {
     }
   };
 
-  const removeFavorite = async (routeId: string) => {
-    const updatedFavorites = favorites.filter((id) => id !== routeId);
+  const removeFavorite = async (routeId: string, bound: string) => {
+    const updatedFavorites = favorites.filter((fav) => !(fav.routeId === routeId && fav.bound === bound));
     setFavorites(updatedFavorites);
     await AsyncStorage.setItem("favorites", JSON.stringify(updatedFavorites));
   };
 
-  const renderItem = ({ item }: { item: string }) => (
+  const renderItem = ({ item }: { item: FavoriteRoute }) => (
     <View style={styles.routeItem}>
-      <Text style={styles.routeText}>Route {item}</Text>
-      <TouchableOpacity onPress={() => removeFavorite(item)}>
+      <Text style={styles.routeText}>Route {item.routeId} ({item.bound === "O" ? "Outbound" : "Inbound"})</Text>
+      <TouchableOpacity onPress={() => removeFavorite(item.routeId, item.bound)}>
         <MaterialIcons name="delete" size={24} color="red" />
       </TouchableOpacity>
     </View>
@@ -48,7 +51,7 @@ export default function Wishlist() {
       <FlatList
         data={favorites}
         renderItem={renderItem}
-        keyExtractor={(item) => item}
+        keyExtractor={(item) => `${item.routeId}-${item.bound}`}
         ListEmptyComponent={<Text style={styles.emptyText}>No favorites added.</Text>}
       />
     </SafeAreaView>
