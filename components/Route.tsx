@@ -1,8 +1,10 @@
 // components/Route.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { MaterialIcons } from "@expo/vector-icons";
-
+import { useColorScheme } from 'react-native';
+import { Dimensions } from 'react-native';
+import { WebView } from 'react-native-webview';
 
 import {
   View,
@@ -51,9 +53,10 @@ interface FavoriteRoute {
   bound: string;
 }
 
-
 let count = 0;
 export default function Route() {
+  const colorScheme = useColorScheme();
+  const isDarkMode = colorScheme === 'dark';
 
   const [currentRouteForRefresh, setCurrentRouteForRefresh] =
     useState<RouteData | null>(null);
@@ -65,6 +68,10 @@ export default function Route() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [favorites, setFavorites] = useState<FavoriteRoute[]>([]);
+  const [selectedStopIndex, setSelectedStopIndex] = useState<number>(-1);
+
+  // Add a ref for the WebView
+  const webViewRef = useRef<WebView>(null);
 
   const toggleFavorite = async (routeId: string, bound: string) => {
     try {
@@ -82,7 +89,6 @@ export default function Route() {
       console.error("Error saving favorites:", error);
     }
   };
-
 
   useEffect(() => {
     fetchRoutes();
@@ -132,7 +138,6 @@ export default function Route() {
     };
   }, [currentRouteForRefresh, selectedRoute]);
 
-
   const fetchRoutes = async () => {
     try {
       const response = await fetch("https://data.etabus.gov.hk/v1/transport/kmb/route/");
@@ -151,7 +156,6 @@ export default function Route() {
     }
   };
 
-
   const loadFavorites = async () => {
     try {
       const storedFavorites = await AsyncStorage.getItem("favorites");
@@ -163,9 +167,6 @@ export default function Route() {
       console.error("Error loading favorites:", error);
     }
   };
-
-
-
 
   const fetchStopsForRoute = async (route: RouteData) => {
     setLoadingStops(true);
@@ -259,6 +260,7 @@ export default function Route() {
       <TextInput
         style={styles.searchInput}
         placeholder="Search routes or bus stops..."
+        placeholderTextColor={isDarkMode ? '#fff' : '#999'}
         value={searchQuery}
         onChangeText={setSearchQuery}
         clearButtonMode="while-editing"
@@ -277,25 +279,25 @@ export default function Route() {
       }}
     >
       <Text style={styles.routeNumber}> {item.route}</Text>
-      <View style={styles.routeDetails}>
+      <View style={[styles.routeDetails, { flex: 1 }]}>
         <Text style={styles.routeText}>From: {item.orig_en}</Text>
         <Text style={styles.routeText}>To: {item.dest_en}</Text>
 
       </View>
 
-      <TouchableOpacity onPress={() => toggleFavorite(item.route, item.bound)}>
+      <TouchableOpacity
+        onPress={() => toggleFavorite(item.route, item.bound)}
+        style={{ marginLeft: 'auto', padding: 8 }}
+      >
         <MaterialIcons
           name={favorites.some((fav) => fav.routeId === item.route && fav.bound === item.bound) ? "star" : "star-border"}
           size={24}
-          style={styles.icons}
           color={favorites.some((fav) => fav.routeId === item.route && fav.bound === item.bound) ? "gold" : "gray"}
         />
-
       </TouchableOpacity>
 
     </TouchableOpacity>
   );
-
 
   const renderStopsList = () => {
     if (!selectedRoute) return null;
@@ -322,11 +324,13 @@ export default function Route() {
             >
               <Text style={styles.closeButtonText}>Close</Text>
             </TouchableOpacity>
-            <Text style={styles.modalTitle}>
-              {selectedRoute.route} To
+            <Text style={[styles.modalTitle, { color: isDarkMode ? '#fff' : '#000' }]}>
+              {selectedRoute.route} To 
               {selectedRoute.dest_en}
             </Text>
           </View>
+
+          {renderMapView()}
 
           {loadingStops ? (
             <ActivityIndicator size="large" color="#0000ff" />
@@ -342,7 +346,10 @@ export default function Route() {
               data={stopsList}
               keyExtractor={(item, index) => `${item.stop}-${index}`}
               renderItem={({ item, index }) => (
-                <View style={styles.stopItem}>
+                <TouchableOpacity
+                  style={styles.stopItem}
+                  onPress={() => handleSelectStop(index)}
+                >
                   <Text style={styles.stopNumber}>Stop {index + 1}</Text>
                   <Text style={styles.stopName}>{item.name_en}</Text>
                   <Text style={styles.stopNameChinese}>{item.name_tc}</Text>
@@ -353,7 +360,7 @@ export default function Route() {
                   ) : (
                     <Text style={styles.etaText}>ETA: N/A</Text>
                   )}
-                </View>
+                </TouchableOpacity>
               )}
               ItemSeparatorComponent={() => <View style={styles.separator} />}
             />
@@ -370,6 +377,337 @@ export default function Route() {
       </Text>
     </View>
   );
+
+  // Function to create HTML content for the map
+  const createLeafletHTML = () => {
+    if (!selectedRoute) return '';
+
+    // Update the initialCenter calculation to handle empty stopsList
+    const initialCenter = stopsList.length > 0 ?
+      `[${stopsList[0].lat}, ${stopsList[0].long}]` :
+      '[0, 0]'; // Default to [0, 0] if stopsList is empty
+
+    // Ensure stopsData is only created if stopsList is not empty
+    const stopsData = stopsList.length > 0 ? JSON.stringify(stopsList.map((stop, index) => ({
+      location: { lat: stop.lat, lng: stop.long },
+      name: { en: stop.name_en, tc: stop.name_tc },
+      eta: stop.eta || []
+    }))) : '[]';
+
+    const routeCoords = stopsList.map(stop => [stop.lat, stop.long]);
+
+    return `
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    <style>
+      html, body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      #map {
+        height: 100%;
+        width: 100%;
+      }
+      .custom-marker {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: bold;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background-color: #2196F3;
+        border: 2px solid white;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+      }
+      .custom-marker.active {
+        background-color: #f44336;
+        width: 36px;
+        height: 36px;
+        z-index: 1000;
+      }
+      .custom-marker.passed {
+        background-color: #9e9e9e;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <script>
+      // Function to initialize the map
+      function initMap() {
+        try {
+          const map = L.map('map').setView(${initialCenter}, 15);
+          
+          // Add tile layer (base map)
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+        }).addTo(map);
+          
+          // Add stops data
+          const stops = ${stopsData};
+          const selectedStopIndex = ${selectedStopIndex};
+          
+          // Create a polyline for the route
+          const routeCoords = ${JSON.stringify(routeCoords)};
+          const routeLine = L.polyline(routeCoords, {
+            color: '#2E86C1',
+            weight: 4
+          }).addTo(map);
+          
+          // Add markers for each stop
+          stops.forEach((stop, index) => {
+            // Create custom marker element
+            const markerEl = document.createElement('div');
+            markerEl.className = 'custom-marker';
+            if (index === selectedStopIndex) {
+              markerEl.classList.add('active');
+            }
+            if (index < selectedStopIndex) {
+              markerEl.classList.add('passed');
+            }
+            markerEl.innerText = (index + 1).toString();
+            
+            // Create marker with custom icon
+            const marker = L.marker([stop.location.lat, stop.location.lng], {
+              icon: L.divIcon({
+                html: markerEl,
+                className: 'marker-container',
+                iconSize: [36, 36],
+                iconAnchor: [18, 18]
+              })
+            }).addTo(map);
+            
+            // Add popup
+            let popupContent = '<b>Stop ' + (index + 1) + ': ' + stop.name.en + '</b><br>';
+            if (stop.eta && stop.eta.length > 0) {
+              popupContent += 'ETA: ' + stop.eta[0];
+            } else {
+              popupContent += 'No ETA available';
+            }
+            
+            marker.bindPopup(popupContent);
+            
+            // Highlight on click
+            marker.on('click', function() {
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                action: 'stopSelected',
+                index: index
+              }));
+            });
+          })
+            
+          // Center to selecte stop if there is one
+          if (selectedStopIndex >= 0) {
+            map.setView([stops[selectedStopIndex].location.lat, stops[selectedStopIndex].location.lng], 16);
+          } else {
+            // Fit the map to show all stops
+            map.fitBounds(routeLine.getBounds(), { padding: [30, 30] });
+          }
+          
+          // Handle message from React Native
+          window.handleMessage = function(message) {
+            const data = JSON.parse(message);
+            if (data.action === 'centerStop' && data.index >= 0 && data.index < stops.length) {
+              map.setView([stops[data.index].location.lat, stops[data.index].location.lng], 16);
+            }
+          };
+        } catch (error) {
+          console.error('Error initializing map: ' + error.message);
+          document.body.innerHTML = '<div style="color: red; padding: 20px;"><p>Error loading map: ' + error.message + '</p></div>';
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            action: 'error',
+            message: error.message
+          }));
+        }
+      }
+
+      // Initialize the map when the page is loaded
+      document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(initMap, 100);
+      });
+    </script>
+  </body>
+  </html>
+  `;
+  };
+
+
+  // Render the WebView in the map view
+  const renderMapView = () => {
+    if (!selectedRoute) return null;
+
+    const html = createLeafletHTML();
+
+    return (
+      <View style={styles.mapContainer}>
+        <WebView
+          ref={webViewRef}
+          originWhitelist={['*']}
+          source={{ html }}
+          style={{ flex: 1 }}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+        />
+      </View>
+    );
+  };
+
+  // Function to handle bus stop click
+  const handleSelectStop = (index: number) => {
+    if (webViewRef.current) {
+      webViewRef.current.postMessage(JSON.stringify({
+        action: 'centerStop',
+        index: index
+      }));
+    }
+  };
+
+  const styles = StyleSheet.create({
+    icons: {
+      right: 10
+    },
+    routeItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: isDarkMode ? '#2C2C2C' : '#fff',
+      padding: 12,
+      borderRadius: 12,
+      marginBottom: 2,
+      shadowColor: isDarkMode ? '#000' : '#ccc',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.1,
+      shadowRadius: 3,
+      elevation: 2,
+    },
+    routeNumber: {
+      fontSize: 20,
+      fontWeight: 'bold',
+      color: isDarkMode ? '#fff' : '#333',
+      width: 40,
+      textAlign: 'center',
+    },
+    routeText: {
+      fontSize: 16,
+      color: isDarkMode ? '#ddd' : '#333',
+      flexWrap: 'wrap',
+    },
+    etaText: {
+      fontSize: 18,
+      fontWeight: 'bold',
+      color: isDarkMode ? '#ffcc00' : '#007AFF',
+    },
+    container: {
+      flex: 1,
+      backgroundColor: isDarkMode ? '#1D1D1D' : '#f5f5f5',
+      padding: 16,
+    },
+    content: {
+      flex: 1,
+    },
+    searchContainer: {
+      padding: 8,
+      backgroundColor: isDarkMode ? '#2C2C2C' : '#fff',
+      borderBottomWidth: 1,
+      borderBottomColor: isDarkMode ? '#333' : '#e0e0e0',
+      zIndex: 1,
+    },
+    searchInput: {
+      height: 40,
+      backgroundColor: isDarkMode ? '#333' : '#f0f0f0',
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      fontSize: 16,
+      color: isDarkMode ? '#fff' : '#000',
+    },
+    listContainer: {
+      padding: 16,
+      flexGrow: 1,
+    },
+    loadingContainer: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    routeDetails: {
+      gap: 4,
+    },
+    directionText: {
+      fontSize: 14,
+      color: "#7f8c8d",
+      marginTop: 4,
+    },
+    separator: {
+      height: 12,
+    },
+    emptyContainer: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+      padding: 20,
+    },
+    emptyText: {
+      fontSize: 18,
+      color: isDarkMode ? '#888' : '#aaa',
+      textAlign: 'center',
+      marginTop: 20,
+    },
+    modalHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: isDarkMode ? '#333' : '#e0e0e0',
+    },
+    closeButton: {
+      padding: 8,
+    },
+    closeButtonText: {
+      fontSize: 16,
+      color: isDarkMode ? '#ffcc00' : '#007AFF',
+    },
+    modalTitle: {
+      fontSize: 20,
+      fontWeight: '600',
+      color: isDarkMode ? '#fff' : '#000',
+      marginLeft: 16,
+    },
+    stopItem: {
+      backgroundColor: isDarkMode ? '#2C2C2C' : '#fff',
+      padding: 12,
+      borderRadius: 12,
+      marginBottom: 12,
+    },
+    stopNumber: {
+      fontSize: 16,
+      fontWeight: 'bold',
+      color: isDarkMode ? '#fff' : '#333',
+    },
+    stopName: {
+      fontSize: 16,
+      color: isDarkMode ? '#ddd' : '#333',
+      marginTop: 4,
+      flexWrap: 'wrap',
+    },
+    stopNameChinese: {
+      fontSize: 14,
+      color: isDarkMode ? '#bbb' : '#7f8c8d',
+      marginTop: 2,
+      flexWrap: 'wrap',
+    },
+    mapContainer: {
+      height: Dimensions.get('window').width,
+      width: '100%',
+    },
+  });
 
   if (loading) {
     return (
@@ -401,132 +739,3 @@ export default function Route() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-
-  icons: {
-    right: 10
-  },
-  routeItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "white",
-    paddingVertical: 16,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#ddd",
-  },
-  routeNumber: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#2c3e50",
-    width: 40, // Fixed width to align properly
-    textAlign: "center",
-  },
-  etaText: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#007AFF",
-  },
-  container: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-    // Add padding top for Android
-    paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 0,
-  },
-
-  content: {
-    flex: 1,
-  },
-  searchContainer: {
-    padding: 8,
-    backgroundColor: "white",
-    borderBottomWidth: 1,
-    borderBottomColor: "#e0e0e0",
-    // Remove any top margin or padding that might cause spacing issues
-    zIndex: 1, // Ensure search bar stays on top
-  },
-  searchInput: {
-    height: 40,
-    backgroundColor: "#f0f0f0",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    fontSize: 16,
-  },
-  listContainer: {
-    padding: 16,
-    flexGrow: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  routeDetails: {
-    gap: 4,
-  },
-  routeText: {
-    fontSize: 16,
-    color: "#34495e",
-  },
-  directionText: {
-    fontSize: 14,
-    color: "#7f8c8d",
-    marginTop: 4,
-  },
-  separator: {
-    height: 12,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-  },
-  emptyText: {
-    fontSize: 16,
-    color: "#666",
-    textAlign: "center",
-  },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e0e0e0",
-  },
-  closeButton: {
-    padding: 8,
-  },
-  closeButtonText: {
-    fontSize: 16,
-    color: "#007AFF",
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginLeft: 16,
-  },
-  stopItem: {
-    backgroundColor: "white",
-    padding: 16,
-    borderRadius: 8,
-  },
-  stopNumber: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#2c3e50",
-  },
-  stopName: {
-    fontSize: 16,
-    color: "#34495e",
-    marginTop: 4,
-  },
-
-  stopNameChinese: {
-    fontSize: 14,
-    color: "#7f8c8d",
-    marginTop: 2,
-  },
-});

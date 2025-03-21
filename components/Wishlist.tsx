@@ -19,6 +19,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import * as Location from "expo-location";
 // Import for WebView to display Leaflet
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
+import { useColorScheme } from 'react-native';
 
 
 
@@ -55,6 +56,149 @@ interface StopInfo {
 }
 
 export default function Wishlist() {
+  const colorScheme = useColorScheme();
+  const isDarkMode = colorScheme === 'dark';
+
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: isDarkMode ? '#1D1D1D' : '#f5f5f5',
+      padding: 16,
+    },
+    title: {
+      fontSize: 28,
+      fontWeight: '600',
+      marginBottom: 16,
+      color: isDarkMode ? '#fff' : '#000',
+      textAlign: 'center',
+    },
+    routeItem: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      backgroundColor: isDarkMode ? '#2C2C2C' : '#fff',
+      padding: 12,
+      borderRadius: 12,
+      marginBottom: 12,
+      shadowColor: isDarkMode ? '#000' : '#ccc',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.1,
+      shadowRadius: 3,
+      elevation: 2,
+    },
+    routeText: {
+      fontSize: 18,
+      color: isDarkMode ? '#ddd' : '#333',
+    },
+    emptyText: {
+      fontSize: 18,
+      color: isDarkMode ? '#888' : '#aaa',
+      textAlign: 'center',
+      marginTop: 20,
+    },
+    // Modal styles
+    modalContainer: {
+      flex: 1,
+      backgroundColor: "#f5f5f5",
+      paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 0,
+    },
+    modalHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      padding: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: "#e0e0e0",
+    },
+    closeButton: {
+      padding: 8,
+    },
+    closeButtonText: {
+      fontSize: 16,
+      color: "#007AFF",
+    },
+    modalTitle: {
+      fontSize: 18,
+      fontWeight: "bold",
+      marginLeft: 16,
+      flex: 1,
+    },
+    mapButton: {
+      padding: 8,
+    },
+    stopItem: {
+      backgroundColor: "white",
+      padding: 16,
+      borderRadius: 8,
+      margin: 8,
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+    },
+    stopItemContent: {
+      flex: 1,
+    },
+    stopNumber: {
+      fontSize: 16,
+      fontWeight: "bold",
+      color: "#2c3e50",
+    },
+    stopName: {
+      fontSize: 16,
+      color: "#34495e",
+      marginTop: 4,
+    },
+    stopNameChinese: {
+      fontSize: 14,
+      color: "#7f8c8d",
+      marginTop: 2,
+    },
+    etaText: {
+      fontSize: 18,
+      fontWeight: "bold",
+      color: "#007AFF",
+      marginTop: 8,
+    },
+    etaTextSmall: {
+      fontSize: 14,
+      fontWeight: "bold",
+      color: "#007AFF",
+    },
+    separator: {
+      height: 8,
+    },
+    emptyContainer: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+      padding: 20,
+    },
+    // Map styles
+    mapContainer: {
+      height: Dimensions.get('window').width,
+      width: '100%',
+    },
+    map: {
+      ...StyleSheet.absoluteFillObject,
+    },
+    horizontalStopList: {
+      maxHeight: 100,
+      marginTop: 10,
+    },
+    stopListItem: {
+      padding: 10,
+      backgroundColor: 'white',
+      borderRadius: 8,
+      marginRight: 8,
+      minWidth: 150,
+      maxWidth: 200,
+    },
+    selectedStopItem: {
+      backgroundColor: '#e3f2fd',
+      borderWidth: 2,
+      borderColor: '#2196F3',
+    },
+  });
+
   const [favorites, setFavorites] = useState<FavoriteRoute[]>([]);
   const [selectedRoute, setSelectedRoute] = useState<RouteData | null>(null);
   const [stopsList, setStopsList] = useState<StopInfo[]>([]);
@@ -65,7 +209,8 @@ export default function Wishlist() {
   const [userLocation, setUserLocation] = useState<{ latitude: number, longitude: number } | null>(null);
   const [locationPermission, setLocationPermission] = useState<boolean>(false);
   const webViewRef = useRef<WebView>(null);
-  const [isLocationButtonClicked, setIsLocationButtonClicked] = useState(false); ``
+  const [isLocationButtonClicked, setIsLocationButtonClicked] = useState(false);
+
   useFocusEffect(
     useCallback(() => {
       loadFavorites();
@@ -338,31 +483,16 @@ export default function Wishlist() {
   </head>
   <body>
     <div id="map"></div>
-    <div id="debug" style="position:fixed; bottom:0; left:0; background:rgba(255,255,255,0.8); padding:5px; z-index:1000; display:none;"></div>
     <script>
-      // Debug function to log messages
-      function debug(msg) {
-      const debugEl = document.getElementById('debug');
-      debugEl.style.display = 'block';
-      debugEl.innerHTML += msg + '<br>';
-      if (window.ReactNativeWebView) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          action: 'debug',
-          message: msg
-        }));
-      }
-    }
-
       // Function to initialize the map
       function initMap() {
-        debug('Starting map initialization');
         try {
           const map = L.map('map').setView(${initialCenter}, 15);
           
           // Add tile layer (base map)
-        L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,
-        attribution: 'Map data: © <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: © <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)'
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
         }).addTo(map);
           
           // Add stops data
@@ -447,10 +577,8 @@ export default function Wishlist() {
               map.setView([stops[data.index].location.lat, stops[data.index].location.lng], 16);
             }
           };
-          
-          debug('Map initialized successfully');
         } catch (error) {
-          debug('Error initializing map: ' + error.message);
+          console.error('Error initializing map: ' + error.message);
           document.body.innerHTML = '<div style="color: red; padding: 20px;"><p>Error loading map: ' + error.message + '</p></div>';
           window.ReactNativeWebView.postMessage(JSON.stringify({
             action: 'error',
@@ -461,17 +589,8 @@ export default function Wishlist() {
 
       // Initialize the map when the page is loaded
       document.addEventListener('DOMContentLoaded', function() {
-        debug('DOM content loaded, initializing map');
         setTimeout(initMap, 100);
       });
-
-      // Fallback in case DOMContentLoaded event doesn't fire
-      setTimeout(function() {
-        if (document.getElementById('map').innerHTML === '') {
-          debug('Fallback map initialization');
-          initMap();
-        }
-      }, 1000);
     </script>
   </body>
   </html>
@@ -606,11 +725,10 @@ export default function Wishlist() {
                 source={{ html: html }}
                 style={{ flex: 1 }}
                 onMessage={handleWebViewMessage}
-                javaScriptEnabled={false}
-                domStorageEnabled={false}
+                javaScriptEnabled={true}
+                domStorageEnabled={true}
                 startInLoadingState={true}
                 onLoadStart={() => console.log('Load start')}
-
                 onLoadEnd={() => console.log('WebView finished loading')}
                 onError={(syntheticEvent) => {
                   const { nativeEvent } = syntheticEvent;
@@ -661,8 +779,6 @@ export default function Wishlist() {
       } else if (data.action === 'error') {
         console.error('Error from WebView:', data.message);
         Alert.alert('Map Error', data.message);
-      } else if (data.action === 'debug') {
-        console.log('WebView debug:', data.message);
       } else if (data.action === 'console.log') {
         console.log('WebView console.log:', data.message);
       } else if (data.action === 'console.error') {
@@ -701,141 +817,3 @@ export default function Wishlist() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-    padding: 20,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "bold",
-    marginBottom: 10,
-  },
-  routeItem: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: "white",
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.23,
-    shadowRadius: 2.62,
-    elevation: 4,
-  },
-  routeText: {
-    fontSize: 18,
-    color: "#34495e",
-  },
-  emptyText: {
-    fontSize: 16,
-    color: "#666",
-    textAlign: "center",
-    marginTop: 20,
-  },
-  // Modal styles
-  modalContainer: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-    paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 0,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e0e0e0",
-  },
-  closeButton: {
-    padding: 8,
-  },
-  closeButtonText: {
-    fontSize: 16,
-    color: "#007AFF",
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginLeft: 16,
-    flex: 1,
-  },
-  mapButton: {
-    padding: 8,
-  },
-  stopItem: {
-    backgroundColor: "white",
-    padding: 16,
-    borderRadius: 8,
-    margin: 8,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  stopItemContent: {
-    flex: 1,
-  },
-  stopNumber: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#2c3e50",
-  },
-  stopName: {
-    fontSize: 16,
-    color: "#34495e",
-    marginTop: 4,
-  },
-  stopNameChinese: {
-    fontSize: 14,
-    color: "#7f8c8d",
-    marginTop: 2,
-  },
-  etaText: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#007AFF",
-    marginTop: 8,
-  },
-  etaTextSmall: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: "#007AFF",
-  },
-  separator: {
-    height: 8,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-  },
-  // Map styles
-  mapContainer: {
-    height: Dimensions.get('window').height * 0.6,
-    width: '100%',
-  },
-  map: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  horizontalStopList: {
-    maxHeight: 100,
-    marginTop: 10,
-  },
-  stopListItem: {
-    padding: 10,
-    backgroundColor: 'white',
-    borderRadius: 8,
-    marginRight: 8,
-    minWidth: 150,
-    maxWidth: 200,
-  },
-  selectedStopItem: {
-    backgroundColor: '#e3f2fd',
-    borderWidth: 2,
-    borderColor: '#2196F3',
-  },
-});
