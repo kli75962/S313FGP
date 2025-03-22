@@ -1,10 +1,12 @@
 // components/Route.tsx
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useColorScheme } from 'react-native';
 import { Dimensions } from 'react-native';
 import { WebView } from 'react-native-webview';
+import { useFocusEffect } from "@react-navigation/native";
+import Settings from './Settings';
 
 import {
   View,
@@ -53,10 +55,65 @@ interface FavoriteRoute {
   bound: string;
 }
 
+interface LanguageStrings {
+  title: string;
+  searchPlaceholder: string;
+  outbound: string;
+  inbound: string;
+  close: string;
+  to: string;
+  stop: string;
+  eta: string;
+  noEta: string;
+  noStopsFound: string;
+  arriving: string;
+  arrivingsoon: string;
+  switchToZh: string;
+  switchToEn: string;
+}
+
+const strings: { [key: string]: LanguageStrings } = {
+  en: {
+    title: "Bus Routes",
+    searchPlaceholder: "Search routes...",
+    outbound: "Outbound",
+    inbound: "Inbound",
+    close: "Close",
+    to: "To",
+    stop: "Stop",
+    eta: "ETA",
+    noEta: "No ETA available",
+    noStopsFound: "No stops found for route",
+    arriving: "Arriving",
+    arrivingsoon: "Arriving soon",
+    switchToZh: "繁",
+    switchToEn: "ENG",
+  },
+  zh: {
+    title: "巴士路線",
+    searchPlaceholder: "搜尋路線...",
+    outbound: "往",
+    inbound: "往",
+    close: "關閉",
+    to: "往",
+    stop: "站",
+    eta: "預計到站時間",
+    noEta: "暫無到站資訊",
+    noStopsFound: "未能找到路線站點",
+    arriving: "即將到達",
+    arrivingsoon: "即將到達",
+    switchToZh: "繁",
+    switchToEn: "ENG",
+  },
+};
+
 let count = 0;
 export default function Route() {
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
+  const [language, setLanguage] = useState<'en' | 'zh'>('zh');
+  const [showSettings, setShowSettings] = useState(false);
+  const t = strings[language];
 
   const [currentRouteForRefresh, setCurrentRouteForRefresh] =
     useState<RouteData | null>(null);
@@ -69,22 +126,43 @@ export default function Route() {
   const [searchQuery, setSearchQuery] = useState("");
   const [favorites, setFavorites] = useState<FavoriteRoute[]>([]);
   const [selectedStopIndex, setSelectedStopIndex] = useState<number>(-1);
+  const [expandedStops, setExpandedStops] = useState<Set<number>>(new Set());
+  const [isMapView, setIsMapView] = useState(false);
 
   // Add a ref for the WebView
   const webViewRef = useRef<WebView>(null);
 
+  useFocusEffect(
+    useCallback(() => {
+      loadFavorites();
+    }, [])
+  );
+
+  const loadFavorites = async () => {
+    try {
+      const storedFavorites = await AsyncStorage.getItem("favorites");
+      if (storedFavorites) {
+        setFavorites(JSON.parse(storedFavorites));
+      }
+    } catch (error) {
+      console.error("Error loading favorites:", error);
+    }
+  };
+
   const toggleFavorite = async (routeId: string, bound: string) => {
     try {
-      const exists = favorites.some((fav) => fav.routeId === routeId && fav.bound === bound);
+      const exists = favorites.some(
+        (fav) => fav.routeId === routeId && fav.bound === bound
+      );
 
       const updatedFavorites = exists
-        ? favorites.filter((fav) => !(fav.routeId === routeId && fav.bound === bound)) // Remove if already in favorites
-        : [...favorites, { routeId, bound }]; // Add to favorites
+        ? favorites.filter(
+          (fav) => !(fav.routeId === routeId && fav.bound === bound)
+        )
+        : [...favorites, { routeId, bound }];
 
-      setFavorites(updatedFavorites); // Update state first
       await AsyncStorage.setItem("favorites", JSON.stringify(updatedFavorites));
-
-      console.log("Updated favorites:", updatedFavorites);
+      setFavorites(updatedFavorites);
     } catch (error) {
       console.error("Error saving favorites:", error);
     }
@@ -92,45 +170,54 @@ export default function Route() {
 
   useEffect(() => {
     fetchRoutes();
-    loadFavorites();
   }, []);
 
   useEffect(() => {
-    filterRoutes();
+    if (routes.length > 0) {
+      const query = searchQuery.toLowerCase().trim();
+      if (query === "") {
+        setFilteredRoutes(routes);
+        return;
+      }
+      const filtered = routes.filter(
+        (route) =>
+          route.route.toLowerCase().includes(query) ||
+          route.orig_en.toLowerCase().includes(query) ||
+          route.dest_en.toLowerCase().includes(query) ||
+          route.orig_tc.includes(query) ||
+          route.dest_tc.includes(query)
+      );
+      setFilteredRoutes(filtered);
+    }
   }, [searchQuery, routes]);
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
 
-    if (currentRouteForRefresh && selectedRoute) {
-      const direction = currentRouteForRefresh.bound === "O" ? "outbound" : "inbound";
+    const fetchAndUpdateETAs = async () => {
+      if (!currentRouteForRefresh || !selectedRoute) return;
 
-      // Function to fetch and update ETAs sequentially
-      const fetchAndUpdateETAs = async () => {
-        try {
-          // Fetch stop list
-          const response = await fetch(
-            `https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${currentRouteForRefresh.route}/${direction}/${currentRouteForRefresh.service_type}`
-          );
-          const json = await response.json();
+      try {
+        const direction = currentRouteForRefresh.bound === "O" ? "outbound" : "inbound";
+        const response = await fetch(
+          `https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${currentRouteForRefresh.route}/${direction}/${currentRouteForRefresh.service_type}`
+        );
+        const json = await response.json();
 
-          if (json.data && Array.isArray(json.data)) {
-            console.log("Fetched stop list successfully");
-            await updateETAs(json.data, currentRouteForRefresh); // Process stops sequentially
-          }
-        } catch (error) {
-          console.error("Error fetching route stops:", error);
+        if (json.data && Array.isArray(json.data)) {
+          await updateETAs(json.data, currentRouteForRefresh);
         }
-      };
+      } catch (error) {
+        console.error("Error fetching route stops:", error);
+      }
+    };
 
-      // Initial fetch
+    if (currentRouteForRefresh && selectedRoute) {
+      // 初始獲取
       fetchAndUpdateETAs();
-
-      // Set up interval for updates
-      intervalId = setInterval(fetchAndUpdateETAs, 20000); // 20 seconds
+      intervalId = setInterval(fetchAndUpdateETAs, 20000);
     }
 
-    // Cleanup function
     return () => {
       if (intervalId) {
         clearInterval(intervalId);
@@ -153,18 +240,6 @@ export default function Route() {
     } catch (error) {
       console.error("Error fetching routes:", error);
       setLoading(false);
-    }
-  };
-
-  const loadFavorites = async () => {
-    try {
-      const storedFavorites = await AsyncStorage.getItem("favorites");
-      if (storedFavorites) {
-        setFavorites(JSON.parse(storedFavorites));
-        console.log("Loaded favorites:", JSON.parse(storedFavorites));
-      }
-    } catch (error) {
-      console.error("Error loading favorites:", error);
     }
   };
 
@@ -223,7 +298,7 @@ export default function Route() {
               const timeDiff = Math.round(
                 (etaTime.getTime() - currentTime.getTime()) / 60000
               );
-              return timeDiff > 0 ? `${timeDiff} mins` : "Arriving soon";
+              return timeDiff > 0 ? `${timeDiff} mins` : t.arrivingsoon;
             })
           : [];
 
@@ -238,28 +313,11 @@ export default function Route() {
     setStopsList(stopsInfo);
   };
 
-  const filterRoutes = () => {
-    const query = searchQuery.toLowerCase().trim();
-    if (query === "") {
-      setFilteredRoutes(routes);
-      return;
-    }
-    const filtered = routes.filter(
-      (route) =>
-        route.route.toLowerCase().includes(query) ||
-        route.orig_en.toLowerCase().includes(query) ||
-        route.dest_en.toLowerCase().includes(query) ||
-        route.orig_tc.includes(query) ||
-        route.dest_tc.includes(query)
-    );
-    setFilteredRoutes(filtered);
-  };
-
   const renderSearchBar = () => (
     <View style={styles.searchContainer}>
       <TextInput
         style={styles.searchInput}
-        placeholder="Search routes or bus stops..."
+        placeholder={t.searchPlaceholder}
         placeholderTextColor={isDarkMode ? '#fff' : '#999'}
         value={searchQuery}
         onChangeText={setSearchQuery}
@@ -278,13 +336,15 @@ export default function Route() {
         fetchStopsForRoute(item);
       }}
     >
-      <Text style={styles.routeNumber}> {item.route}</Text>
+      <Text style={styles.routeNumber}>{item.route}</Text>
       <View style={[styles.routeDetails, { flex: 1 }]}>
-        <Text style={styles.routeText}>From: {item.orig_en}</Text>
-        <Text style={styles.routeText}>To: {item.dest_en}</Text>
-
+        <Text style={styles.routeText}>
+          {t.outbound}: {language === 'zh' ? item.orig_tc : item.orig_en}
+        </Text>
+        <Text style={styles.routeText}>
+          {t.to}: {language === 'zh' ? item.dest_tc : item.dest_en}
+        </Text>
       </View>
-
       <TouchableOpacity
         onPress={() => toggleFavorite(item.route, item.bound)}
         style={{ marginLeft: 'auto', padding: 8 }}
@@ -295,9 +355,12 @@ export default function Route() {
           color={favorites.some((fav) => fav.routeId === item.route && fav.bound === item.bound) ? "gold" : "gray"}
         />
       </TouchableOpacity>
-
     </TouchableOpacity>
   );
+
+  const handleShowMap = () => {
+    setIsMapView(!isMapView);
+  };
 
   const renderStopsList = () => {
     if (!selectedRoute) return null;
@@ -308,62 +371,94 @@ export default function Route() {
         animationType="slide"
         onRequestClose={() => {
           setSelectedRoute(null);
-          setCurrentRouteForRefresh(null); // Clear the refresh state
+          setCurrentRouteForRefresh(null);
           setStopsList([]);
+          setIsMapView(false);
         }}
       >
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <TouchableOpacity
               onPress={() => {
                 setSelectedRoute(null);
-                setCurrentRouteForRefresh(null); // Clear the refresh state
+                setCurrentRouteForRefresh(null);
                 setStopsList([]);
+                setIsMapView(false);
               }}
               style={styles.closeButton}
             >
-              <Text style={styles.closeButtonText}>Close</Text>
+              <Text style={styles.closeButtonText}>{t.close}</Text>
             </TouchableOpacity>
             <Text style={[styles.modalTitle, { color: isDarkMode ? '#fff' : '#000' }]}>
-              {selectedRoute.route} To 
-              {selectedRoute.dest_en}
+              {selectedRoute.route} {language === 'zh' ? selectedRoute.dest_tc : selectedRoute.dest_en}
             </Text>
+            <TouchableOpacity onPress={handleShowMap} style={styles.mapButton}>
+              <MaterialIcons
+                name={isMapView ? "format-list-bulleted" : "map"}
+                size={24}
+                color="#007AFF"
+              />
+            </TouchableOpacity>
           </View>
 
-          {renderMapView()}
-
-          {loadingStops ? (
-            <ActivityIndicator size="large" color="#0000ff" />
-          ) : stopsList.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>
-                No stops found for route {selectedRoute.route} (
-                {selectedRoute.bound === "O" ? "Outbound" : "Inbound"}).
-              </Text>
-            </View>
+          {isMapView ? (
+            renderMapView()
           ) : (
-            <FlatList
-              data={stopsList}
-              keyExtractor={(item, index) => `${item.stop}-${index}`}
-              renderItem={({ item, index }) => (
-                <TouchableOpacity
-                  style={styles.stopItem}
-                  onPress={() => handleSelectStop(index)}
-                >
-                  <Text style={styles.stopNumber}>Stop {index + 1}</Text>
-                  <Text style={styles.stopName}>{item.name_en}</Text>
-                  <Text style={styles.stopNameChinese}>{item.name_tc}</Text>
-                  {item.eta && item.eta.length > 0 ? (
-                    <Text style={styles.etaText}>
-                      ETA: {item.eta.join(", ")}
-                    </Text>
-                  ) : (
-                    <Text style={styles.etaText}>ETA: N/A</Text>
+            <>
+              {loadingStops ? (
+                <ActivityIndicator size="large" color="#0000ff" />
+              ) : stopsList.length === 0 ? (
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyText}>
+                    {t.noStopsFound} {selectedRoute.route}
+                  </Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={stopsList}
+                  keyExtractor={(item, index) => `${item.stop}-${index}`}
+                  renderItem={({ item, index }) => (
+                    <TouchableOpacity
+                      style={[
+                        styles.stopItem,
+                        expandedStops.has(index) && styles.stopItemExpanded
+                      ]}
+                      onPress={() => toggleStopExpansion(index)}
+                    >
+                      <View style={styles.stopHeader}>
+                        <View style={styles.stopInfo}>
+                          <Text style={styles.stopNumber}>站 {index + 1}</Text>
+                          <Text style={styles.stopName}>
+                            {language === 'zh' ? item.name_tc : item.name_en}
+                          </Text>
+                        </View>
+                        <MaterialIcons
+                          name={expandedStops.has(index) ? "keyboard-arrow-up" : "keyboard-arrow-down"}
+                          size={24}
+                          color={isDarkMode ? "#fff" : "#666"}
+                        />
+                      </View>
+
+                      {expandedStops.has(index) && (
+                        <View style={styles.etaContainer}>
+                          <Text style={styles.etaLabel}>預計到站時間:</Text>
+                          {item.eta && item.eta.length > 0 ? (
+                            item.eta.map((eta, etaIndex) => (
+                              <Text key={etaIndex} style={styles.etaText}>
+                                {eta}
+                              </Text>
+                            ))
+                          ) : (
+                            <Text style={styles.etaText}>{t.noEta}</Text>
+                          )}
+                        </View>
+                      )}
+                    </TouchableOpacity>
                   )}
-                </TouchableOpacity>
+                  ItemSeparatorComponent={() => <View style={styles.separator} />}
+                />
               )}
-              ItemSeparatorComponent={() => <View style={styles.separator} />}
-            />
+            </>
           )}
         </SafeAreaView>
       </Modal>
@@ -571,6 +666,16 @@ export default function Route() {
     }
   };
 
+  const toggleStopExpansion = (index: number) => {
+    const newExpandedStops = new Set(expandedStops);
+    if (expandedStops.has(index)) {
+      newExpandedStops.delete(index);
+    } else {
+      newExpandedStops.add(index);
+    }
+    setExpandedStops(newExpandedStops);
+  };
+
   const styles = StyleSheet.create({
     icons: {
       right: 10
@@ -660,54 +765,142 @@ export default function Route() {
       textAlign: 'center',
       marginTop: 20,
     },
+    modalContainer: {
+      flex: 1,
+      backgroundColor: isDarkMode ? '#1D1D1D' : '#f5f5f5',
+    },
+    stopItem: {
+      backgroundColor: isDarkMode ? '#2C2C2C' : '#fff',
+      padding: 16,
+      margin: 8,
+      borderRadius: 12,
+      shadowColor: isDarkMode ? '#000' : '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
+    },
+    stopItemExpanded: {
+      backgroundColor: isDarkMode ? '#333' : '#f8f8f8',
+    },
+    stopHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    stopInfo: {
+      flex: 1,
+    },
+    stopNumber: {
+      fontSize: 20,
+      fontWeight: '600',
+      color: isDarkMode ? '#fff' : '#000',
+      marginBottom: 4,
+    },
+    stopName: {
+      fontSize: 16,
+      color: isDarkMode ? '#ddd' : '#666',
+    },
+    etaContainer: {
+      marginTop: 12,
+      paddingTop: 12,
+      borderTopWidth: 1,
+      borderTopColor: isDarkMode ? '#444' : '#eee',
+    },
+    etaLabel: {
+      fontSize: 14,
+      color: isDarkMode ? '#bbb' : '#666',
+      marginBottom: 8,
+    },
     modalHeader: {
       flexDirection: 'row',
       alignItems: 'center',
       padding: 16,
       borderBottomWidth: 1,
-      borderBottomColor: isDarkMode ? '#333' : '#e0e0e0',
+      borderBottomColor: isDarkMode ? '#333' : '#eee',
+      backgroundColor: isDarkMode ? '#2C2C2C' : '#fff',
     },
     closeButton: {
       padding: 8,
     },
     closeButtonText: {
       fontSize: 16,
-      color: isDarkMode ? '#ffcc00' : '#007AFF',
+      color: '#007AFF',
     },
     modalTitle: {
-      fontSize: 20,
+      flex: 1,
+      fontSize: 18,
       fontWeight: '600',
-      color: isDarkMode ? '#fff' : '#000',
-      marginLeft: 16,
+      textAlign: 'center',
+      marginHorizontal: 8,
     },
-    stopItem: {
-      backgroundColor: isDarkMode ? '#2C2C2C' : '#fff',
-      padding: 12,
-      borderRadius: 12,
-      marginBottom: 12,
-    },
-    stopNumber: {
-      fontSize: 16,
-      fontWeight: 'bold',
-      color: isDarkMode ? '#fff' : '#333',
-    },
-    stopName: {
-      fontSize: 16,
-      color: isDarkMode ? '#ddd' : '#333',
-      marginTop: 4,
-      flexWrap: 'wrap',
-    },
-    stopNameChinese: {
-      fontSize: 14,
-      color: isDarkMode ? '#bbb' : '#7f8c8d',
-      marginTop: 2,
-      flexWrap: 'wrap',
+    mapButton: {
+      padding: 8,
     },
     mapContainer: {
       height: Dimensions.get('window').width,
       width: '100%',
     },
+    languageSwitch: {
+      position: 'absolute',
+      top: 16,
+      right: 16,
+      backgroundColor: isDarkMode ? '#2C2C2C' : '#fff',
+      padding: 8,
+      borderRadius: 8,
+      shadowColor: isDarkMode ? '#000' : '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
+    },
+    languageText: {
+      color: isDarkMode ? '#fff' : '#333',
+      fontSize: 16,
+      fontWeight: '600',
+    },
+    title: {
+      fontSize: 32,
+      fontWeight: '700',
+      marginBottom: 24,
+      color: isDarkMode ? '#fff' : '#000',
+      textAlign: 'center',
+      letterSpacing: 0.5,
+    },
+    settingsButton: {
+      position: 'absolute',
+      top: 16,
+      right: 16,
+      padding: 8,
+      zIndex: 1,
+    },
   });
+
+  const LanguageSwitch = () => (
+    <TouchableOpacity
+      style={styles.languageSwitch}
+      onPress={() => setLanguage(language === 'en' ? 'zh' : 'en')}
+    >
+      <Text style={styles.languageText}>
+        {language === 'en' ? t.switchToZh : t.switchToEn}
+      </Text>
+    </TouchableOpacity>
+  );
+
+  // Add useEffect to load saved language preference
+  useEffect(() => {
+    const loadLanguage = async () => {
+      try {
+        const savedLanguage = await AsyncStorage.getItem('language');
+        if (savedLanguage) {
+          setLanguage(savedLanguage as 'en' | 'zh');
+        }
+      } catch (error) {
+        console.error('Error loading language preference:', error);
+      }
+    };
+    loadLanguage();
+  }, []);
 
   if (loading) {
     return (
@@ -721,6 +914,13 @@ export default function Route() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <Text style={styles.title}>{t.title}</Text>
+      <TouchableOpacity
+        style={styles.settingsButton}
+        onPress={() => setShowSettings(true)}
+      >
+        <MaterialIcons name="settings" size={24} color={isDarkMode ? '#fff' : '#000'} />
+      </TouchableOpacity>
       <View style={styles.content}>
         {renderSearchBar()}
         <FlatList
@@ -736,6 +936,20 @@ export default function Route() {
 
         {renderStopsList()}
       </View>
+
+      <Modal
+        visible={showSettings}
+        animationType="slide"
+        onRequestClose={() => setShowSettings(false)}
+      >
+        <Settings
+          language={language}
+          onLanguageChange={(newLang) => {
+            setLanguage(newLang);
+            setShowSettings(false);
+          }}
+        />
+      </Modal>
     </SafeAreaView>
   );
 }

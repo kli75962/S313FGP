@@ -12,16 +12,16 @@ import {
   Platform,
   StatusBar,
   Dimensions,
-  Alert // Add this import
-} from "react-native"; import AsyncStorage from "@react-native-async-storage/async-storage";
+  Alert,
+  TextInput
+} from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import * as Location from "expo-location";
 // Import for WebView to display Leaflet
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useColorScheme } from 'react-native';
-
-
 
 interface FavoriteRoute {
   routeId: string;
@@ -55,9 +55,69 @@ interface StopInfo {
   eta?: string[]; // Added ETA field
 }
 
+interface LanguageStrings {
+  title: string;
+  noFavorites: string;
+  outbound: string;
+  inbound: string;
+  close: string;
+  to: string;
+  stop: string;
+  eta: string;
+  noEta: string;
+  noStopsFound: string;
+  closeMap: string;
+  routeMap: string;
+  arriving: string;
+  yourLocation: string;
+  switchToZh: string;
+  switchToEn: string;
+}
+
+const strings: { [key: string]: LanguageStrings } = {
+  en: {
+    title: "Favorite Routes",
+    noFavorites: "No favorites added.",
+    outbound: "Outbound",
+    inbound: "Inbound",
+    close: "Close",
+    to: "To",
+    stop: "Stop",
+    eta: "ETA",
+    noEta: "No ETA available",
+    noStopsFound: "No stops found for route",
+    closeMap: "Close Map",
+    routeMap: "Route Map",
+    arriving: "Arriving",
+    yourLocation: "Your location",
+    switchToZh: "繁",
+    switchToEn: "ENG",
+  },
+  zh: {
+    title: "收藏路線",
+    noFavorites: "未有收藏路線",
+    outbound: "往",
+    inbound: "往",
+    close: "關閉",
+    to: "往",
+    stop: "站",
+    eta: "預計到站時間",
+    noEta: "暫無到站資訊",
+    noStopsFound: "未能找到路線站點",
+    closeMap: "關閉地圖",
+    routeMap: "路線地圖",
+    arriving: "即將到達",
+    yourLocation: "你的位置",
+    switchToZh: "繁",
+    switchToEn: "ENG",
+  },
+};
+
 export default function Wishlist() {
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
+  const [language, setLanguage] = useState<'en' | 'zh'>('zh');
+  const t = strings[language];
 
   const styles = StyleSheet.create({
     container: {
@@ -66,29 +126,31 @@ export default function Wishlist() {
       padding: 16,
     },
     title: {
-      fontSize: 28,
-      fontWeight: '600',
-      marginBottom: 16,
+      fontSize: 32,
+      fontWeight: '700',
+      marginBottom: 24,
       color: isDarkMode ? '#fff' : '#000',
       textAlign: 'center',
+      letterSpacing: 0.5,
     },
     routeItem: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
       backgroundColor: isDarkMode ? '#2C2C2C' : '#fff',
-      padding: 12,
-      borderRadius: 12,
-      marginBottom: 12,
-      shadowColor: isDarkMode ? '#000' : '#ccc',
-      shadowOffset: { width: 0, height: 1 },
+      padding: 16,
+      borderRadius: 16,
+      marginBottom: 16,
+      shadowColor: isDarkMode ? '#000' : '#000',
+      shadowOffset: { width: 0, height: 2 },
       shadowOpacity: 0.1,
-      shadowRadius: 3,
-      elevation: 2,
+      shadowRadius: 8,
+      elevation: 4,
     },
     routeText: {
-      fontSize: 18,
-      color: isDarkMode ? '#ddd' : '#333',
+      fontSize: 20,
+      fontWeight: '600',
+      color: isDarkMode ? '#fff' : '#333',
     },
     emptyText: {
       fontSize: 18,
@@ -126,45 +188,58 @@ export default function Wishlist() {
       padding: 8,
     },
     stopItem: {
-      backgroundColor: "white",
-      padding: 16,
-      borderRadius: 8,
+      backgroundColor: isDarkMode ? '#2C2C2C' : '#fff',
+      padding: 20,
+      borderRadius: 16,
       margin: 8,
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
+      shadowColor: isDarkMode ? '#000' : '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 8,
+      elevation: 4,
     },
-    stopItemContent: {
+    stopHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    stopInfo: {
       flex: 1,
     },
     stopNumber: {
-      fontSize: 16,
-      fontWeight: "bold",
-      color: "#2c3e50",
+      fontSize: 18,
+      fontWeight: '700',
+      color: isDarkMode ? '#fff' : '#2c3e50',
+      marginBottom: 4,
     },
     stopName: {
-      fontSize: 16,
-      color: "#34495e",
-      marginTop: 4,
+      fontSize: 17,
+      color: isDarkMode ? '#ddd' : '#34495e',
+      marginBottom: 2,
     },
     stopNameChinese: {
-      fontSize: 14,
-      color: "#7f8c8d",
-      marginTop: 2,
+      fontSize: 15,
+      color: isDarkMode ? '#aaa' : '#7f8c8d',
+    },
+    etaContainer: {
+      marginTop: 12,
+      borderTopWidth: 1,
+      borderTopColor: isDarkMode ? '#444' : '#e0e0e0',
+      paddingTop: 12,
     },
     etaText: {
-      fontSize: 18,
-      fontWeight: "bold",
-      color: "#007AFF",
-      marginTop: 8,
+      fontSize: 16,
+      color: '#2196F3',
+      fontWeight: '600',
+      marginBottom: 4,
     },
-    etaTextSmall: {
+    etaLabel: {
       fontSize: 14,
-      fontWeight: "bold",
-      color: "#007AFF",
+      color: isDarkMode ? '#aaa' : '#666',
+      marginBottom: 8,
     },
-    separator: {
-      height: 8,
+    expandButton: {
+      padding: 8,
     },
     emptyContainer: {
       flex: 1,
@@ -197,6 +272,63 @@ export default function Wishlist() {
       borderWidth: 2,
       borderColor: '#2196F3',
     },
+    languageSwitch: {
+      position: 'absolute',
+      top: 16,
+      right: 16,
+      backgroundColor: isDarkMode ? '#2C2C2C' : '#fff',
+      padding: 8,
+      borderRadius: 8,
+      shadowColor: isDarkMode ? '#000' : '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
+    },
+    languageButton: {
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 4,
+    },
+    languageButtonActive: {
+      backgroundColor: isDarkMode ? '#444' : '#e0e0e0',
+    },
+    languageText: {
+      color: isDarkMode ? '#fff' : '#333',
+      fontSize: 16,
+      fontWeight: '600',
+    },
+    languageTextActive: {
+      color: isDarkMode ? '#fff' : '#000',
+      fontWeight: '700',
+    },
+    separator: {
+      height: 8,
+    },
+    etaTextSmall: {
+      fontSize: 14,
+      fontWeight: "bold",
+      color: "#007AFF",
+    },
+    listContainer: {
+      padding: 16,
+      flexGrow: 1,
+    },
+    routeNumber: {
+      fontSize: 20,
+      fontWeight: 'bold',
+      color: isDarkMode ? '#fff' : '#333',
+      width: 40,
+      textAlign: 'center',
+    },
+    routeDetails: {
+      gap: 4,
+    },
+    fromToText: {
+      fontSize: 16,
+      color: isDarkMode ? '#ddd' : '#333',
+      flexWrap: 'wrap',
+    },
   });
 
   const [favorites, setFavorites] = useState<FavoriteRoute[]>([]);
@@ -210,19 +342,19 @@ export default function Wishlist() {
   const [locationPermission, setLocationPermission] = useState<boolean>(false);
   const webViewRef = useRef<WebView>(null);
   const [isLocationButtonClicked, setIsLocationButtonClicked] = useState(false);
+  const [expandedStops, setExpandedStops] = useState<Set<number>>(new Set());
+  const [routes, setRoutes] = useState<RouteData[]>([]);
 
   useFocusEffect(
     useCallback(() => {
       loadFavorites();
       requestLocationPermission();
-    }, [])
+    }, [favorites])
   );
 
   const requestLocationPermission = async () => {
     try {
       if (Platform.OS === 'android' && __DEV__) {
-        // Use hardcoded coordinates for Android emulator during development
-        console.log("Using mock location for Android emulator");
         setUserLocation({
           latitude: 22.2820,
           longitude: 114.1588,
@@ -265,11 +397,17 @@ export default function Wishlist() {
   };
 
   const removeFavorite = async (routeId: string, bound: string) => {
-    const updatedFavorites = favorites.filter(
-      (fav) => !(fav.routeId === routeId && fav.bound === bound)
-    );
-    setFavorites(updatedFavorites);
-    await AsyncStorage.setItem("favorites", JSON.stringify(updatedFavorites));
+    try {
+      const updatedFavorites = favorites.filter(
+        (fav) => !(fav.routeId === routeId && fav.bound === bound)
+      );
+      setFavorites(updatedFavorites);
+      await AsyncStorage.setItem("favorites", JSON.stringify(updatedFavorites));
+      await loadFavorites();
+      console.log("Updated favorites after removal:", updatedFavorites);
+    } catch (error) {
+      console.error("Error removing favorite:", error);
+    }
   };
 
   const navigateToRouteDetails = (routeId: string, bound: string) => {
@@ -349,14 +487,14 @@ export default function Wishlist() {
         // Process ETA data
         const etaTimes = etaJson.data
           ? etaJson.data
-            .filter((eta: any) => eta.seq === index + 1) // Ensure correct sequence
+            .filter((eta: any) => eta.seq === index + 1)
             .map((eta: any) => {
               const etaTime = new Date(eta.eta);
               const currentTime = new Date();
               const timeDiff = Math.round(
                 (etaTime.getTime() - currentTime.getTime()) / 60000
               );
-              return timeDiff > 0 ? `${timeDiff} mins` : "Arriving soon";
+              return timeDiff > 0 ? `${timeDiff} mins` : t.arriving;
             })
           : [];
 
@@ -422,7 +560,7 @@ export default function Wishlist() {
 
   // Update the createLeafletHTML function to include Leaflet libraries
   const createLeafletHTML = () => {
-    if (!stopsList.length) return '';
+    if (!stopsList.length || !selectedRoute) return '';
 
     // Convert stops to JavaScript array inside HTML
     const stopsData = JSON.stringify(stopsList.map((stop, index) => ({
@@ -484,27 +622,63 @@ export default function Wishlist() {
   <body>
     <div id="map"></div>
     <script>
+      // Function to fetch route data from hk-bus-route-api
+      async function fetchRouteData(routeName, bound) {
+        try {
+          const response = await fetch(\`https://hk-bus-route-api.herokuapp.com/routes/\${routeName}/\${bound}\`);
+          if (!response.ok) {
+            throw new Error('Failed to fetch route data');
+          }
+          const data = await response.json();
+          return data;
+        } catch (error) {
+          console.error('Error fetching route data:', error);
+          return null;
+        }
+      }
+
       // Function to initialize the map
-      function initMap() {
+      async function initMap() {
         try {
           const map = L.map('map').setView(${initialCenter}, 15);
           
           // Add tile layer (base map)
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-        }).addTo(map);
+          L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+          }).addTo(map);
           
           // Add stops data
           const stops = ${stopsData};
           const selectedStopIndex = ${selectedStopIndex};
           
-          // Create a polyline for the route
-          const routeCoords = ${JSON.stringify(routeCoords)};
-          const routeLine = L.polyline(routeCoords, {
-            color: '#2E86C1',
-            weight: 4
-          }).addTo(map);
+          // Fetch route data
+          const routeName = '${selectedRoute.route}';
+          const bound = '${selectedRoute.bound}';
+          const routeData = await fetchRouteData(routeName, bound);
+          
+          if (routeData && routeData.path) {
+            // Draw the accurate route using path data
+            const routeLine = L.polyline(routeData.path, {
+              color: '#2E86C1',
+              weight: 4,
+              opacity: 0.8
+            }).addTo(map);
+            
+            // Fit the map to show the entire route
+            map.fitBounds(routeLine.getBounds(), { padding: [30, 30] });
+          } else {
+            // Fallback to using stop coordinates if route data is not available
+            const routeCoords = ${JSON.stringify(routeCoords)};
+            const routeLine = L.polyline(routeCoords, {
+              color: '#2E86C1',
+              weight: 4,
+              opacity: 0.8
+            }).addTo(map);
+            
+            // Fit the map to show all stops
+            map.fitBounds(routeLine.getBounds(), { padding: [30, 30] });
+          }
           
           // Add markers for each stop
           stops.forEach((stop, index) => {
@@ -529,12 +703,13 @@ export default function Wishlist() {
               })
             }).addTo(map);
             
-            // Add popup
-            let popupContent = '<b>Stop ' + (index + 1) + ': ' + stop.name.en + '</b><br>';
+            // Modify popup content
+            let popupContent = '<b>${t.stop} ' + (index + 1) + ': ' + 
+              (${language === 'zh'} ? stop.name.tc : stop.name.en) + '</b><br>';
             if (stop.eta && stop.eta.length > 0) {
-              popupContent += 'ETA: ' + stop.eta[0];
+              popupContent += '${t.eta}: ' + stop.eta[0];
             } else {
-              popupContent += 'No ETA available';
+              popupContent += '${t.noEta}';
             }
             
             marker.bindPopup(popupContent);
@@ -559,15 +734,12 @@ export default function Wishlist() {
                 iconAnchor: [12, 12]
               })
             }).addTo(map);
-            userMarker.bindPopup("Your location");
+            userMarker.bindPopup("${t.yourLocation}");
           }
           
-          // Center to selecte stop if there is one
+          // Center to selected stop if there is one
           if (selectedStopIndex >= 0) {
             map.setView([stops[selectedStopIndex].location.lat, stops[selectedStopIndex].location.lng], 16);
-          } else {
-            // Fit the map to show all stops
-            map.fitBounds(routeLine.getBounds(), { padding: [30, 30] });
           }
           
           // Handle message from React Native
@@ -577,6 +749,20 @@ export default function Wishlist() {
               map.setView([stops[data.index].location.lat, stops[data.index].location.lng], 16);
             }
           };
+
+          // Modify bottom horizontal scroll list
+          const stopsList = document.querySelector('.horizontal-stop-list');
+          if (stopsList) {
+            stops.forEach((stop, index) => {
+              const stopItem = stopsList.children[index];
+              if (stopItem) {
+                const nameElement = stopItem.querySelector('.stop-name');
+                if (nameElement) {
+                  nameElement.textContent = ${language === 'zh'} ? stop.name.tc : stop.name.en;
+                }
+              }
+            });
+          }
         } catch (error) {
           console.error('Error initializing map: ' + error.message);
           document.body.innerHTML = '<div style="color: red; padding: 20px;"><p>Error loading map: ' + error.message + '</p></div>';
@@ -589,7 +775,7 @@ export default function Wishlist() {
 
       // Initialize the map when the page is loaded
       document.addEventListener('DOMContentLoaded', function() {
-        setTimeout(initMap, 100);
+        setTimeout(initMap, 500);
       });
     </script>
   </body>
@@ -597,7 +783,51 @@ export default function Wishlist() {
   `;
   };
 
+  const toggleStopExpansion = (index: number) => {
+    const newExpandedStops = new Set(expandedStops);
+    if (expandedStops.has(index)) {
+      newExpandedStops.delete(index);
+    } else {
+      newExpandedStops.add(index);
+    }
+    setExpandedStops(newExpandedStops);
+  };
 
+  const renderStopItem = ({ item, index }: { item: StopInfo; index: number }) => (
+    <TouchableOpacity
+      style={styles.stopItem}
+      onPress={() => toggleStopExpansion(index)}
+    >
+      <View style={styles.stopHeader}>
+        <View style={styles.stopInfo}>
+          <Text style={styles.stopNumber}>{t.stop} {index + 1}</Text>
+          <Text style={styles.stopName}>
+            {language === 'zh' ? item.name_tc : item.name_en}
+          </Text>
+        </View>
+        <MaterialIcons
+          name={expandedStops.has(index) ? "keyboard-arrow-up" : "keyboard-arrow-down"}
+          size={24}
+          color={isDarkMode ? "#fff" : "#666"}
+        />
+      </View>
+
+      {expandedStops.has(index) && (
+        <View style={styles.etaContainer}>
+          <Text style={styles.etaLabel}>{t.eta}:</Text>
+          {item.eta && item.eta.length > 0 ? (
+            item.eta.map((eta, etaIndex) => (
+              <Text key={etaIndex} style={styles.etaText}>
+                {eta}
+              </Text>
+            ))
+          ) : (
+            <Text style={styles.etaText}>{t.noEta}</Text>
+          )}
+        </View>
+      )}
+    </TouchableOpacity>
+  );
 
   const renderStopsList = () => {
     if (!selectedRoute) return null;
@@ -608,7 +838,7 @@ export default function Wishlist() {
         animationType="slide"
         onRequestClose={() => {
           setSelectedRoute(null);
-          setCurrentRouteForRefresh(null); // Clear the refresh state
+          setCurrentRouteForRefresh(null);
           setStopsList([]);
           setSelectedStopIndex(-1);
         }}
@@ -618,16 +848,16 @@ export default function Wishlist() {
             <TouchableOpacity
               onPress={() => {
                 setSelectedRoute(null);
-                setCurrentRouteForRefresh(null); // Clear the refresh state
+                setCurrentRouteForRefresh(null);
                 setStopsList([]);
                 setSelectedStopIndex(-1);
               }}
               style={styles.closeButton}
             >
-              <Text style={styles.closeButtonText}>Close</Text>
+              <Text style={styles.closeButtonText}>{t.close}</Text>
             </TouchableOpacity>
             <Text style={styles.modalTitle}>
-              {selectedRoute.route} To {selectedRoute.dest_en}
+              {selectedRoute.route} {t.to} {language === 'zh' ? selectedRoute.dest_tc : selectedRoute.dest_en}
             </Text>
             {stopsList.length > 0 && (
               <TouchableOpacity onPress={handleShowMap} style={styles.mapButton}>
@@ -641,39 +871,14 @@ export default function Wishlist() {
           ) : stopsList.length === 0 ? (
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>
-                No stops found for route {selectedRoute.route} (
-                {selectedRoute.bound === "O" ? "Outbound" : "Inbound"}).
+                {t.noStopsFound} {selectedRoute.route} ({selectedRoute.bound === "O" ? t.outbound : t.inbound}).
               </Text>
             </View>
           ) : (
             <FlatList
               data={stopsList}
+              renderItem={renderStopItem}
               keyExtractor={(item, index) => `${item.stop}-${index}`}
-              renderItem={({ item, index }) => (
-                <TouchableOpacity
-                  style={styles.stopItem}
-                  onPress={() => handleSelectStop(index)}
-                >
-                  <View style={styles.stopItemContent}>
-                    <Text style={styles.stopNumber}>Stop {index + 1}</Text>
-                    <Text style={styles.stopName}>{item.name_en}</Text>
-                    <Text style={styles.stopNameChinese}>{item.name_tc}</Text>
-                    {item.eta && item.eta.length > 0 ? (
-                      <Text style={styles.etaText}>
-                        ETA: {item.eta.join(", ")}
-                      </Text>
-                    ) : (
-                      <Text style={styles.etaText}>ETA: N/A</Text>
-                    )}
-                  </View>
-
-                  <MaterialIcons
-                    name="location-on"
-                    size={24}
-                    color={isLocationButtonClicked && selectedStopIndex === index ? "#0056b3" : "#007AFF"}
-                  />
-                </TouchableOpacity>
-              )}
               ItemSeparatorComponent={() => <View style={styles.separator} />}
             />
           )}
@@ -681,12 +886,6 @@ export default function Wishlist() {
       </Modal>
     );
   };
-
-  // const handleLocationButtonClick = (index: number) => {
-  //   setIsLocationButtonClicked(true);
-  //   console.log(`Location button clicked for stop index: ${index}`);
-  //   setShowMap(true);
-  // };
 
   const renderMapView = () => {
     if (!showMap || stopsList.length === 0) return null;
@@ -711,10 +910,10 @@ export default function Wishlist() {
                 }}
                 style={styles.closeButton}
               >
-                <Text style={styles.closeButtonText}>Close Map</Text>
+                <Text style={styles.closeButtonText}>{t.closeMap}</Text>
               </TouchableOpacity>
               <Text style={styles.modalTitle}>
-                {selectedRoute?.route} Route Map
+                {selectedRoute?.route} {t.routeMap}
               </Text>
             </View>
 
@@ -753,10 +952,12 @@ export default function Wishlist() {
                   ]}
                   onPress={() => setSelectedStopIndex(index)}
                 >
-                  <Text style={styles.stopNumber}>Stop {index + 1}</Text>
-                  <Text style={styles.stopName}>{item.name_en}</Text>
+                  <Text style={styles.stopNumber}>{t.stop} {index + 1}</Text>
+                  <Text style={styles.stopName}>
+                    {language === 'zh' ? item.name_tc : item.name_en}
+                  </Text>
                   {item.eta && item.eta.length > 0 && (
-                    <Text style={styles.etaTextSmall}>ETA: {item.eta[0]}</Text>
+                    <Text style={styles.etaTextSmall}>{t.eta}: {item.eta[0]}</Text>
                   )}
                 </TouchableOpacity>
               )}
@@ -789,28 +990,70 @@ export default function Wishlist() {
     }
   };
 
-  const renderItem = ({ item }: { item: FavoriteRoute }) => (
-    <TouchableOpacity
-      style={styles.routeItem}
-      onPress={() => navigateToRouteDetails(item.routeId, item.bound)}
-    >
-      <Text style={styles.routeText}>
-        Route {item.routeId} ({item.bound === "O" ? "Outbound" : "Inbound"})
-      </Text>
-      <TouchableOpacity onPress={() => removeFavorite(item.routeId, item.bound)}>
-        <MaterialIcons name="delete" size={24} color="red" />
+  const renderItem = ({ item }: { item: FavoriteRoute }) => {
+    const route = routes.find(r => r.route === item.routeId && r.bound === item.bound);
+    if (!route) return null;
+
+    return (
+      <TouchableOpacity
+        style={styles.routeItem}
+        onPress={() => navigateToRouteDetails(item.routeId, item.bound)}
+      >
+        <Text style={styles.routeNumber}>{item.routeId}</Text>
+        <View style={[styles.routeDetails, { flex: 1 }]}>
+          <Text style={styles.fromToText}>
+            From: {language === 'zh' ? route.orig_tc : route.orig_en}
+          </Text>
+          <Text style={styles.fromToText}>
+            To: {language === 'zh' ? route.dest_tc : route.dest_en}
+          </Text>
+        </View>
+        <TouchableOpacity onPress={() => removeFavorite(item.routeId, item.bound)}>
+          <MaterialIcons name="delete" size={24} color="red" />
+        </TouchableOpacity>
       </TouchableOpacity>
+    );
+  };
+
+  const LanguageSwitch = () => (
+    <TouchableOpacity
+      style={styles.languageSwitch}
+      onPress={() => setLanguage(language === 'en' ? 'zh' : 'en')}
+    >
+      <Text style={styles.languageText}>
+        {language === 'en' ? t.switchToZh : t.switchToEn}
+      </Text>
     </TouchableOpacity>
   );
 
+  useEffect(() => {
+    const fetchRoutes = async () => {
+      try {
+        const response = await fetch("https://data.etabus.gov.hk/v1/transport/kmb/route/");
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        const json = await response.json();
+        setRoutes(json.data);
+      } catch (error) {
+        console.error("Error fetching routes:", error);
+      }
+    };
+
+    fetchRoutes();
+  }, []);
+
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Favorite Routes</Text>
+      <Text style={styles.title}>{t.title}</Text>
+      <LanguageSwitch />
       <FlatList
         data={favorites}
         renderItem={renderItem}
         keyExtractor={(item) => `${item.routeId}-${item.bound}`}
-        ListEmptyComponent={<Text style={styles.emptyText}>No favorites added.</Text>}
+        ListEmptyComponent={<Text style={styles.emptyText}>{t.noFavorites}</Text>}
+        contentContainerStyle={styles.listContainer}
+        ItemSeparatorComponent={() => <View style={styles.separator} />}
       />
       {renderStopsList()}
       {renderMapView()}
