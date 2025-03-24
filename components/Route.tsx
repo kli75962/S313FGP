@@ -213,7 +213,7 @@ export default function Route() {
     };
 
     if (currentRouteForRefresh && selectedRoute) {
-      // 初始獲取
+
       fetchAndUpdateETAs();
       intervalId = setInterval(fetchAndUpdateETAs, 20000);
     }
@@ -427,7 +427,7 @@ export default function Route() {
                     >
                       <View style={styles.stopHeader}>
                         <View style={styles.stopInfo}>
-                          <Text style={styles.stopNumber}>站 {index + 1}</Text>
+                          <Text style={styles.stopNumber}>{t.stop} {index + 1}</Text>
                           <Text style={styles.stopName}>
                             {language === 'zh' ? item.name_tc : item.name_en}
                           </Text>
@@ -441,7 +441,7 @@ export default function Route() {
 
                       {expandedStops.has(index) && (
                         <View style={styles.etaContainer}>
-                          <Text style={styles.etaLabel}>預計到站時間:</Text>
+                          <Text style={styles.etaLabel}>{t.eta}:</Text>
                           {item.eta && item.eta.length > 0 ? (
                             item.eta.map((eta, etaIndex) => (
                               <Text key={etaIndex} style={styles.etaText}>
@@ -876,31 +876,26 @@ export default function Route() {
     },
   });
 
-  const LanguageSwitch = () => (
-    <TouchableOpacity
-      style={styles.languageSwitch}
-      onPress={() => setLanguage(language === 'en' ? 'zh' : 'en')}
-    >
-      <Text style={styles.languageText}>
-        {language === 'en' ? t.switchToZh : t.switchToEn}
-      </Text>
-    </TouchableOpacity>
-  );
-
-  // Add useEffect to load saved language preference
-  useEffect(() => {
-    const loadLanguage = async () => {
-      try {
-        const savedLanguage = await AsyncStorage.getItem('language');
-        if (savedLanguage) {
-          setLanguage(savedLanguage as 'en' | 'zh');
-        }
-      } catch (error) {
-        console.error('Error loading language preference:', error);
+  const loadLanguage = async () => {
+    try {
+      const savedLanguage = await AsyncStorage.getItem('language');
+      if (savedLanguage) {
+        setLanguage(savedLanguage as 'en' | 'zh');
       }
-    };
-    loadLanguage();
-  }, []);
+    } catch (error) {
+      console.error('Error loading language:', error);
+    }
+  };
+
+  const handleLanguageChange = async (newLang: 'en' | 'zh') => {
+    try {
+      await AsyncStorage.setItem('language', newLang);
+      setLanguage(newLang);
+    } catch (error) {
+      console.error('Error saving language:', error);
+    }
+  };
+
 
   if (loading) {
     return (
@@ -916,10 +911,12 @@ export default function Route() {
     <SafeAreaView style={styles.container}>
       <Text style={styles.title}>{t.title}</Text>
       <TouchableOpacity
-        style={styles.settingsButton}
-        onPress={() => setShowSettings(true)}
+        style={styles.languageSwitch}
+        onPress={() => handleLanguageChange(language === 'en' ? 'zh' : 'en')}
       >
-        <MaterialIcons name="settings" size={24} color={isDarkMode ? '#fff' : '#000'} />
+        <Text style={styles.languageText}>
+          {language === 'en' ? t.switchToZh : t.switchToEn}
+        </Text>
       </TouchableOpacity>
       <View style={styles.content}>
         {renderSearchBar()}

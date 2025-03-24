@@ -113,6 +113,11 @@ const strings: { [key: string]: LanguageStrings } = {
   },
 };
 
+interface WishlistProps {
+  language: string;
+  onLanguageChange: (newLanguage: string) => void;
+}
+
 export default function Wishlist() {
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
@@ -284,6 +289,7 @@ export default function Wishlist() {
       shadowOpacity: 0.1,
       shadowRadius: 4,
       elevation: 3,
+      zIndex: 10,
     },
     languageButton: {
       paddingHorizontal: 8,
@@ -388,7 +394,6 @@ export default function Wishlist() {
       const storedFavorites = await AsyncStorage.getItem("favorites");
       if (storedFavorites) {
         const parsed = JSON.parse(storedFavorites);
-        console.log("Loaded favorites:", parsed);
         setFavorites(parsed);
       }
     } catch (error) {
@@ -411,7 +416,6 @@ export default function Wishlist() {
   };
 
   const navigateToRouteDetails = (routeId: string, bound: string) => {
-    console.log("Fetching details for:", { routeId, bound });
     fetchRouteInfo(routeId, bound);
   };
 
@@ -891,84 +895,83 @@ export default function Wishlist() {
     if (!showMap || stopsList.length === 0) return null;
 
     const html = createLeafletHTML();
-    console.log(html)
-      ; return (
-        <Modal
-          visible={showMap}
-          animationType="slide"
-          onRequestClose={() => {
-            setShowMap(false);
-            setSelectedStopIndex(-1);
-          }}
-        >
-          <SafeAreaView style={styles.container}>
-            <View style={styles.modalHeader}>
-              <TouchableOpacity
-                onPress={() => {
-                  setShowMap(false);
-                  setSelectedStopIndex(-1);
-                }}
-                style={styles.closeButton}
-              >
-                <Text style={styles.closeButtonText}>{t.closeMap}</Text>
-              </TouchableOpacity>
-              <Text style={styles.modalTitle}>
-                {selectedRoute?.route} {t.routeMap}
-              </Text>
-            </View>
+    ; return (
+      <Modal
+        visible={showMap}
+        animationType="slide"
+        onRequestClose={() => {
+          setShowMap(false);
+          setSelectedStopIndex(-1);
+        }}
+      >
+        <SafeAreaView style={styles.container}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity
+              onPress={() => {
+                setShowMap(false);
+                setSelectedStopIndex(-1);
+              }}
+              style={styles.closeButton}
+            >
+              <Text style={styles.closeButtonText}>{t.closeMap}</Text>
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>
+              {selectedRoute?.route} {t.routeMap}
+            </Text>
+          </View>
 
-            <View style={[styles.mapContainer, { flex: 1 }]}>
-              <WebView
-                ref={webViewRef}
-                originWhitelist={['*']}
-                source={{ html: html }}
-                style={{ flex: 1 }}
-                onMessage={handleWebViewMessage}
-                javaScriptEnabled={true}
-                domStorageEnabled={true}
-                startInLoadingState={true}
-                onLoadStart={() => console.log('Load start')}
-                onLoadEnd={() => console.log('WebView finished loading')}
-                onError={(syntheticEvent) => {
-                  const { nativeEvent } = syntheticEvent;
-                  console.error('WebView error: ', nativeEvent);
-                  Alert.alert('Map Error', 'Failed to load the map: ' + nativeEvent.description);
-                }}
-                onHttpError={(syntheticEvent) => {
-                  const { nativeEvent } = syntheticEvent;
-                  console.error('WebView HTTP error: ', nativeEvent);
-                }}
-              />
-            </View>
-
-            <FlatList
-              data={stopsList}
-              keyExtractor={(item, index) => `map-stop-${index}`}
-              renderItem={({ item, index }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.stopListItem,
-                    selectedStopIndex === index && styles.selectedStopItem
-                  ]}
-                  onPress={() => setSelectedStopIndex(index)}
-                >
-                  <Text style={styles.stopNumber}>{t.stop} {index + 1}</Text>
-                  <Text style={styles.stopName}>
-                    {language === 'zh' ? item.name_tc : item.name_en}
-                  </Text>
-                  {item.eta && item.eta.length > 0 && (
-                    <Text style={styles.etaTextSmall}>{t.eta}: {item.eta[0]}</Text>
-                  )}
-                </TouchableOpacity>
-              )}
-              horizontal
-              showsHorizontalScrollIndicator={true}
-              style={styles.horizontalStopList}
+          <View style={[styles.mapContainer, { flex: 1 }]}>
+            <WebView
+              ref={webViewRef}
+              originWhitelist={['*']}
+              source={{ html: html }}
+              style={{ flex: 1 }}
+              onMessage={handleWebViewMessage}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              startInLoadingState={true}
+              onLoadStart={() => console.log('Load start')}
+              onLoadEnd={() => console.log('WebView finished loading')}
+              onError={(syntheticEvent) => {
+                const { nativeEvent } = syntheticEvent;
+                console.error('WebView error: ', nativeEvent);
+                Alert.alert('Map Error', 'Failed to load the map: ' + nativeEvent.description);
+              }}
+              onHttpError={(syntheticEvent) => {
+                const { nativeEvent } = syntheticEvent;
+                console.error('WebView HTTP error: ', nativeEvent);
+              }}
             />
-          </SafeAreaView>
-        </Modal>
+          </View>
 
-      );
+          <FlatList
+            data={stopsList}
+            keyExtractor={(item, index) => `map-stop-${index}`}
+            renderItem={({ item, index }) => (
+              <TouchableOpacity
+                style={[
+                  styles.stopListItem,
+                  selectedStopIndex === index && styles.selectedStopItem
+                ]}
+                onPress={() => setSelectedStopIndex(index)}
+              >
+                <Text style={styles.stopNumber}>{t.stop} {index + 1}</Text>
+                <Text style={styles.stopName}>
+                  {language === 'zh' ? item.name_tc : item.name_en}
+                </Text>
+                {item.eta && item.eta.length > 0 && (
+                  <Text style={styles.etaTextSmall}>{t.eta}: {item.eta[0]}</Text>
+                )}
+              </TouchableOpacity>
+            )}
+            horizontal
+            showsHorizontalScrollIndicator={true}
+            style={styles.horizontalStopList}
+          />
+        </SafeAreaView>
+      </Modal>
+
+    );
   };
 
   const handleWebViewMessage = (event: WebViewMessageEvent) => {
@@ -1015,16 +1018,26 @@ export default function Wishlist() {
     );
   };
 
-  const LanguageSwitch = () => (
-    <TouchableOpacity
-      style={styles.languageSwitch}
-      onPress={() => setLanguage(language === 'en' ? 'zh' : 'en')}
-    >
-      <Text style={styles.languageText}>
-        {language === 'en' ? t.switchToZh : t.switchToEn}
-      </Text>
-    </TouchableOpacity>
-  );
+  const loadLanguage = async () => {
+    try {
+      const savedLanguage = await AsyncStorage.getItem('language');
+      if (savedLanguage) {
+        setLanguage(savedLanguage as 'en' | 'zh');
+      }
+    } catch (error) {
+      console.error('Error loading language:', error);
+    }
+  };
+
+  const handleLanguageChange = async (newLang: 'en' | 'zh') => {
+    console.log("123");
+    try {
+      await AsyncStorage.setItem('language', newLang);
+      setLanguage(newLang);
+    } catch (error) {
+      console.error('Error saving language:', error);
+    }
+  };
 
   useEffect(() => {
     const fetchRoutes = async () => {
@@ -1046,7 +1059,15 @@ export default function Wishlist() {
   return (
     <SafeAreaView style={styles.container}>
       <Text style={styles.title}>{t.title}</Text>
-      <LanguageSwitch />
+
+      <TouchableOpacity
+        style={styles.languageSwitch}
+        onPress={() => handleLanguageChange(language === 'en' ? 'zh' : 'en')}
+      >
+        <Text style={styles.languageText}>
+          {language === 'en' ? t.switchToZh : t.switchToEn}
+        </Text>
+      </TouchableOpacity>
       <FlatList
         data={favorites}
         renderItem={renderItem}
