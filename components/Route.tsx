@@ -135,6 +135,7 @@ export default function Route() {
   useFocusEffect(
     useCallback(() => {
       loadFavorites();
+      loadLanguage();
     }, [])
   );
 
@@ -165,6 +166,26 @@ export default function Route() {
       setFavorites(updatedFavorites);
     } catch (error) {
       console.error("Error saving favorites:", error);
+    }
+  };
+
+  const loadLanguage = async () => {
+    try {
+      const savedLanguage = await AsyncStorage.getItem('appLanguage');
+      if (savedLanguage) {
+        setLanguage(savedLanguage as 'en' | 'zh');
+      }
+    } catch (error) {
+      console.error('Error loading language:', error);
+    }
+  };
+
+  const handleLanguageChange = async (newLang: 'en' | 'zh') => {
+    try {
+      await AsyncStorage.setItem('appLanguage', newLang);
+      setLanguage(newLang);
+    } catch (error) {
+      console.error('Error saving language:', error);
     }
   };
 
@@ -291,7 +312,7 @@ export default function Route() {
         // Process ETA data
         const etaTimes = etaJson.data
           ? etaJson.data
-            .filter((eta: any) => eta.seq === index + 1) // Ensure correct sequence
+            .filter((eta: any) => eta.seq === index + 1)
             .map((eta: any) => {
               const etaTime = new Date(eta.eta);
               const currentTime = new Date();
@@ -303,6 +324,15 @@ export default function Route() {
           : [];
 
         stopsInfo.push({ ...stopJson.data, eta: etaTimes });
+
+        // Update ETA in the map without refreshing
+        if (webViewRef.current) {
+          webViewRef.current.postMessage(JSON.stringify({
+            action: 'updateETA',
+            index: index,
+            eta: etaTimes
+          }));
+        }
 
         console.log(`Fetched ETA for stop ${stop.stop} (${index + 1}/${stops.length})`);
       } catch (error) {
@@ -417,44 +447,7 @@ export default function Route() {
                 <FlatList
                   data={stopsList}
                   keyExtractor={(item, index) => `${item.stop}-${index}`}
-                  renderItem={({ item, index }) => (
-                    <TouchableOpacity
-                      style={[
-                        styles.stopItem,
-                        expandedStops.has(index) && styles.stopItemExpanded
-                      ]}
-                      onPress={() => toggleStopExpansion(index)}
-                    >
-                      <View style={styles.stopHeader}>
-                        <View style={styles.stopInfo}>
-                          <Text style={styles.stopNumber}>{t.stop} {index + 1}</Text>
-                          <Text style={styles.stopName}>
-                            {language === 'zh' ? item.name_tc : item.name_en}
-                          </Text>
-                        </View>
-                        <MaterialIcons
-                          name={expandedStops.has(index) ? "keyboard-arrow-up" : "keyboard-arrow-down"}
-                          size={24}
-                          color={isDarkMode ? "#fff" : "#666"}
-                        />
-                      </View>
-
-                      {expandedStops.has(index) && (
-                        <View style={styles.etaContainer}>
-                          <Text style={styles.etaLabel}>{t.eta}:</Text>
-                          {item.eta && item.eta.length > 0 ? (
-                            item.eta.map((eta, etaIndex) => (
-                              <Text key={etaIndex} style={styles.etaText}>
-                                {eta}
-                              </Text>
-                            ))
-                          ) : (
-                            <Text style={styles.etaText}>{t.noEta}</Text>
-                          )}
-                        </View>
-                      )}
-                    </TouchableOpacity>
-                  )}
+                  renderItem={renderStopItem}
                   ItemSeparatorComponent={() => <View style={styles.separator} />}
                 />
               )}
@@ -464,6 +457,43 @@ export default function Route() {
       </Modal>
     );
   };
+
+  const renderStopItem = ({ item, index }: { item: StopInfo; index: number }) => (
+    <TouchableOpacity
+      style={[
+        styles.stopItem,
+        selectedStopIndex === index && styles.selectedStopItem
+      ]}
+      onPress={() => {
+        setSelectedStopIndex(index);
+        // Send message to WebView to center on selected stop
+        if (webViewRef.current) {
+          webViewRef.current.postMessage(JSON.stringify({
+            action: 'centerStop',
+            index: index
+          }));
+        }
+      }}
+    >
+      <View style={styles.stopListItemContent}>
+        <View style={styles.stopInfo}>
+          <Text style={styles.stopNumber}>{t.stop} {index + 1}</Text>
+          <Text style={styles.stopName} numberOfLines={1}>
+            {language === 'zh' ? item.name_tc : item.name_en}
+          </Text>
+        </View>
+      </View>
+      {item.eta && item.eta.length > 0 && (
+        <View style={styles.etaContainer}>
+          {item.eta.slice(0, 3).map((eta, etaIndex) => (
+            <Text key={etaIndex} style={styles.etaTextSmall}>
+              {eta}
+            </Text>
+          ))}
+        </View>
+      )}
+    </TouchableOpacity>
+  );
 
   const renderEmpty = () => (
     <View style={styles.emptyContainer}>
@@ -477,19 +507,15 @@ export default function Route() {
   const createLeafletHTML = () => {
     if (!selectedRoute) return '';
 
-    // Update the initialCenter calculation to handle empty stopsList
     const initialCenter = stopsList.length > 0 ?
       `[${stopsList[0].lat}, ${stopsList[0].long}]` :
-      '[0, 0]'; // Default to [0, 0] if stopsList is empty
+      '[0, 0]';
 
-    // Ensure stopsData is only created if stopsList is not empty
     const stopsData = stopsList.length > 0 ? JSON.stringify(stopsList.map((stop, index) => ({
       location: { lat: stop.lat, lng: stop.long },
       name: { en: stop.name_en, tc: stop.name_tc },
       eta: stop.eta || []
     }))) : '[]';
-
-    const routeCoords = stopsList.map(stop => [stop.lat, stop.long]);
 
     return `
   <!DOCTYPE html>
@@ -536,31 +562,24 @@ export default function Route() {
   <body>
     <div id="map"></div>
     <script>
-      // Function to initialize the map
+      let map;
+      let markers = [];
+      let popups = [];
+
       function initMap() {
         try {
-          const map = L.map('map').setView(${initialCenter}, 15);
+          map = L.map('map').setView(${initialCenter}, 15);
           
-          // Add tile layer (base map)
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-        }).addTo(map);
+          L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+          }).addTo(map);
           
-          // Add stops data
           const stops = ${stopsData};
           const selectedStopIndex = ${selectedStopIndex};
           
-          // Create a polyline for the route
-          const routeCoords = ${JSON.stringify(routeCoords)};
-          const routeLine = L.polyline(routeCoords, {
-            color: '#2E86C1',
-            weight: 4
-          }).addTo(map);
-          
           // Add markers for each stop
           stops.forEach((stop, index) => {
-            // Create custom marker element
             const markerEl = document.createElement('div');
             markerEl.className = 'custom-marker';
             if (index === selectedStopIndex) {
@@ -571,7 +590,6 @@ export default function Route() {
             }
             markerEl.innerText = (index + 1).toString();
             
-            // Create marker with custom icon
             const marker = L.marker([stop.location.lat, stop.location.lng], {
               icon: L.divIcon({
                 html: markerEl,
@@ -581,7 +599,8 @@ export default function Route() {
               })
             }).addTo(map);
             
-            // Add popup
+            markers.push(marker);
+            
             let popupContent = '<b>Stop ' + (index + 1) + ': ' + stop.name.en + '</b><br>';
             if (stop.eta && stop.eta.length > 0) {
               popupContent += 'ETA: ' + stop.eta[0];
@@ -589,30 +608,40 @@ export default function Route() {
               popupContent += 'No ETA available';
             }
             
-            marker.bindPopup(popupContent);
+            const popup = marker.bindPopup(popupContent);
+            popups.push(popup);
             
-            // Highlight on click
             marker.on('click', function() {
               window.ReactNativeWebView.postMessage(JSON.stringify({
                 action: 'stopSelected',
                 index: index
               }));
             });
-          })
+          });
             
-          // Center to selecte stop if there is one
           if (selectedStopIndex >= 0) {
             map.setView([stops[selectedStopIndex].location.lat, stops[selectedStopIndex].location.lng], 16);
-          } else {
-            // Fit the map to show all stops
-            map.fitBounds(routeLine.getBounds(), { padding: [30, 30] });
+          } else if (stops.length > 0) {
+            map.setView([stops[0].location.lat, stops[0].location.lng], 15);
           }
           
-          // Handle message from React Native
           window.handleMessage = function(message) {
             const data = JSON.parse(message);
             if (data.action === 'centerStop' && data.index >= 0 && data.index < stops.length) {
               map.setView([stops[data.index].location.lat, stops[data.index].location.lng], 16);
+            } else if (data.action === 'updateETA' && data.index >= 0 && data.index < markers.length) {
+              const marker = markers[data.index];
+              const popup = popups[data.index];
+              const stop = stops[data.index];
+              
+              let popupContent = '<b>Stop ' + (data.index + 1) + ': ' + stop.name.en + '</b><br>';
+              if (data.eta && data.eta.length > 0) {
+                popupContent += 'ETA: ' + data.eta[0];
+              } else {
+                popupContent += 'No ETA available';
+              }
+              
+              popup.setContent(popupContent);
             }
           };
         } catch (error) {
@@ -625,7 +654,6 @@ export default function Route() {
         }
       }
 
-      // Initialize the map when the page is loaded
       document.addEventListener('DOMContentLoaded', function() {
         setTimeout(initMap, 100);
       });
@@ -643,27 +671,29 @@ export default function Route() {
     const html = createLeafletHTML();
 
     return (
-      <View style={styles.mapContainer}>
-        <WebView
-          ref={webViewRef}
-          originWhitelist={['*']}
-          source={{ html }}
-          style={{ flex: 1 }}
-          javaScriptEnabled={true}
-          domStorageEnabled={true}
-        />
+      <View style={{ flex: 1 }}>
+        <View style={styles.mapContainer}>
+          <WebView
+            ref={webViewRef}
+            originWhitelist={['*']}
+            source={{ html }}
+            style={{ flex: 1 }}
+            javaScriptEnabled={true}
+            domStorageEnabled={true}
+          />
+        </View>
+        <View style={styles.stopListContainer}>
+          <FlatList
+            data={stopsList}
+            keyExtractor={(item, index) => `map-stop-${index}`}
+            renderItem={renderStopItem}
+            showsVerticalScrollIndicator={true}
+            style={styles.verticalStopList}
+            ItemSeparatorComponent={() => <View style={styles.separator} />}
+          />
+        </View>
       </View>
     );
-  };
-
-  // Function to handle bus stop click
-  const handleSelectStop = (index: number) => {
-    if (webViewRef.current) {
-      webViewRef.current.postMessage(JSON.stringify({
-        action: 'centerStop',
-        index: index
-      }));
-    }
   };
 
   const toggleStopExpansion = (index: number) => {
@@ -802,10 +832,10 @@ export default function Route() {
       color: isDarkMode ? '#ddd' : '#666',
     },
     etaContainer: {
-      marginTop: 12,
-      paddingTop: 12,
-      borderTopWidth: 1,
-      borderTopColor: isDarkMode ? '#444' : '#eee',
+      marginTop: 8,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
     },
     etaLabel: {
       fontSize: 14,
@@ -874,28 +904,41 @@ export default function Route() {
       padding: 8,
       zIndex: 1,
     },
+    stopListItem: {
+      padding: 12,
+      backgroundColor: isDarkMode ? '#2C2C2C' : '#fff',
+      borderRadius: 8,
+      marginHorizontal: 8,
+      marginVertical: 4,
+      borderWidth: 1,
+      borderColor: isDarkMode ? '#444' : '#e0e0e0',
+    },
+    stopListItemContent: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+    },
+    selectedStopItem: {
+      backgroundColor: isDarkMode ? '#1A237E' : '#e3f2fd',
+      borderColor: isDarkMode ? '#64B5F6' : '#2196F3',
+    },
+    stopListContainer: {
+      flex: 1,
+      backgroundColor: isDarkMode ? '#1D1D1D' : '#f5f5f5',
+    },
+    verticalStopList: {
+      flex: 1,
+    },
+    etaTextSmall: {
+      fontSize: 14,
+      fontWeight: "bold",
+      color: isDarkMode ? '#64B5F6' : '#007AFF',
+      backgroundColor: isDarkMode ? '#1A237E' : '#e3f2fd',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 4,
+    },
   });
-
-  const loadLanguage = async () => {
-    try {
-      const savedLanguage = await AsyncStorage.getItem('language');
-      if (savedLanguage) {
-        setLanguage(savedLanguage as 'en' | 'zh');
-      }
-    } catch (error) {
-      console.error('Error loading language:', error);
-    }
-  };
-
-  const handleLanguageChange = async (newLang: 'en' | 'zh') => {
-    try {
-      await AsyncStorage.setItem('language', newLang);
-      setLanguage(newLang);
-    } catch (error) {
-      console.error('Error saving language:', error);
-    }
-  };
-
 
   if (loading) {
     return (
