@@ -236,7 +236,7 @@ export default function Route() {
     if (currentRouteForRefresh && selectedRoute) {
 
       fetchAndUpdateETAs();
-      intervalId = setInterval(fetchAndUpdateETAs, 20000);
+      intervalId = setInterval(fetchAndUpdateETAs, 60000);
     }
 
     return () => {
@@ -447,7 +447,7 @@ export default function Route() {
                 <FlatList
                   data={stopsList}
                   keyExtractor={(item, index) => `${item.stop}-${index}`}
-                  renderItem={renderStopItem}
+                  renderItem={renderStopItemList}
                   ItemSeparatorComponent={() => <View style={styles.separator} />}
                 />
               )}
@@ -494,6 +494,52 @@ export default function Route() {
       )}
     </TouchableOpacity>
   );
+
+  const renderStopItemList = ({ item, index }: { item: StopInfo; index: number }) => (
+    <TouchableOpacity
+      style={styles.stopItem}
+      onPress={() => toggleStopExpansion(index)}
+    >
+      <View style={styles.stopHeader}>
+        <View style={styles.stopInfo}>
+          <Text style={styles.stopNumber}>{t.stop} {index + 1}</Text>
+          <Text style={styles.stopName}>
+            {language === 'zh' ? item.name_tc : item.name_en}
+          </Text>
+        </View>
+        <MaterialIcons
+          name={expandedStops.has(index) ? "keyboard-arrow-up" : "keyboard-arrow-down"}
+          size={24}
+          color={isDarkMode ? "#fff" : "#666"}
+        />
+      </View>
+
+      {expandedStops.has(index) && (
+        <View style={styles.etaContainer}>
+          <Text style={styles.etaLabel}>{t.eta}:</Text>
+          {item.eta && item.eta.length > 0 ? (
+            item.eta.map((eta, etaIndex) => (
+              <Text key={etaIndex} style={styles.etaText}>
+                {eta}
+              </Text>
+            ))
+          ) : (
+            <Text style={styles.etaText}>{t.noEta}</Text>
+          )}
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+
+  const toggleStopExpansion = (index: number) => {
+    const newExpandedStops = new Set(expandedStops);
+    if (expandedStops.has(index)) {
+      newExpandedStops.delete(index);
+    } else {
+      newExpandedStops.add(index);
+    }
+    setExpandedStops(newExpandedStops);
+  };
 
   const renderEmpty = () => (
     <View style={styles.emptyContainer}>
@@ -696,15 +742,6 @@ export default function Route() {
     );
   };
 
-  const toggleStopExpansion = (index: number) => {
-    const newExpandedStops = new Set(expandedStops);
-    if (expandedStops.has(index)) {
-      newExpandedStops.delete(index);
-    } else {
-      newExpandedStops.add(index);
-    }
-    setExpandedStops(newExpandedStops);
-  };
 
   const styles = StyleSheet.create({
     icons: {
@@ -736,9 +773,10 @@ export default function Route() {
       flexWrap: 'wrap',
     },
     etaText: {
-      fontSize: 18,
-      fontWeight: 'bold',
-      color: isDarkMode ? '#ffcc00' : '#007AFF',
+      fontSize: 16,
+      color: '#2196F3',
+      fontWeight: '600',
+      marginBottom: 4,
     },
     container: {
       flex: 1,

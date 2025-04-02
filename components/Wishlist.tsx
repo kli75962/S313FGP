@@ -1,4 +1,4 @@
-// Wishlist.tsx
+
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   View,
@@ -12,14 +12,12 @@ import {
   Platform,
   StatusBar,
   Dimensions,
-  Alert,
-  TextInput
+  Alert
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import * as Location from "expo-location";
-// Import for WebView to display Leaflet
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useColorScheme } from 'react-native';
 
@@ -52,7 +50,7 @@ interface StopInfo {
   lat: number;
   long: number;
   seq: number[];
-  eta?: string[]; // Added ETA field
+  eta?: string[];
 }
 
 interface LanguageStrings {
@@ -113,10 +111,6 @@ const strings: { [key: string]: LanguageStrings } = {
   },
 };
 
-interface WishlistProps {
-  language: string;
-  onLanguageChange: (newLanguage: string) => void;
-}
 
 export default function Wishlist() {
   const colorScheme = useColorScheme();
@@ -163,7 +157,6 @@ export default function Wishlist() {
       textAlign: 'center',
       marginTop: 20,
     },
-    // Modal styles
     modalContainer: {
       flex: 1,
       backgroundColor: isDarkMode ? '#1D1D1D' : '#f5f5f5',
@@ -253,7 +246,7 @@ export default function Wishlist() {
       alignItems: "center",
       padding: 20,
     },
-    // Map styles
+
     mapContainer: {
       height: Dimensions.get('window').width,
       width: '100%',
@@ -357,9 +350,7 @@ export default function Wishlist() {
   const [selectedStopIndex, setSelectedStopIndex] = useState<number>(-1);
   const [showMap, setShowMap] = useState<boolean>(false);
   const [userLocation, setUserLocation] = useState<{ latitude: number, longitude: number } | null>(null);
-  const [locationPermission, setLocationPermission] = useState<boolean>(false);
   const webViewRef = useRef<WebView>(null);
-  const [isLocationButtonClicked, setIsLocationButtonClicked] = useState(false);
   const [expandedStops, setExpandedStops] = useState<Set<number>>(new Set());
   const [routes, setRoutes] = useState<RouteData[]>([]);
 
@@ -373,28 +364,16 @@ export default function Wishlist() {
 
   const requestLocationPermission = async () => {
     try {
-      if (Platform.OS === 'android' && __DEV__) {
-        setUserLocation({
-          latitude: 22.2820,
-          longitude: 114.1588,
-        });
-      } else {
-        const location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
 
-        const latitude = location.coords.latitude;
-        const longitude = location.coords.longitude;
-        console.log("phone", latitude, longitude);
-        setUserLocation({
-          latitude,
-          longitude,
-        });
-      }
+
+      setUserLocation({
+        latitude: 22.3209,
+        longitude: 114.1794,
+      });
+
 
     } catch (error) {
       console.error("Error getting location:", error);
-      // Fallback to hardcoded coordinates even if error occurs
       setUserLocation({
         latitude: 22.2820,
         longitude: 114.1588,
@@ -517,7 +496,6 @@ export default function Wishlist() {
 
         stopsInfo.push({ ...stopJson.data, eta: etaTimes });
 
-        // Update ETA in the map without refreshing
         if (webViewRef.current) {
           webViewRef.current.postMessage(JSON.stringify({
             action: 'updateETA',
@@ -553,18 +531,16 @@ export default function Wishlist() {
 
           if (json.data && Array.isArray(json.data)) {
             console.log("Fetched stop list successfully");
-            await updateETAs(json.data, currentRouteForRefresh); // Process stops sequentially
+            await updateETAs(json.data, currentRouteForRefresh);
           }
         } catch (error) {
           console.error("Error fetching route stops:", error);
         }
       };
 
-      // Initial fetch
       fetchAndUpdateETAs();
 
-      // Set up interval for updates
-      intervalId = setInterval(fetchAndUpdateETAs, 20000); // 20 seconds
+      intervalId = setInterval(fetchAndUpdateETAs, 60000);
     }
 
     // Cleanup function
@@ -889,7 +865,6 @@ export default function Wishlist() {
                 originWhitelist={['*']}
                 source={{ html: html }}
                 style={{ flex: 1 }}
-                onMessage={handleWebViewMessage}
                 javaScriptEnabled={true}
                 domStorageEnabled={true}
                 startInLoadingState={true}
@@ -898,7 +873,6 @@ export default function Wishlist() {
                 onError={(syntheticEvent) => {
                   const { nativeEvent } = syntheticEvent;
                   console.error('WebView error: ', nativeEvent);
-                  Alert.alert('Map Error', 'Failed to load the map: ' + nativeEvent.description);
                 }}
                 onHttpError={(syntheticEvent) => {
                   const { nativeEvent } = syntheticEvent;
@@ -947,24 +921,6 @@ export default function Wishlist() {
     );
   };
 
-  const handleWebViewMessage = (event: WebViewMessageEvent) => {
-    try {
-      const data = JSON.parse(event.nativeEvent.data);
-
-      if (data.action === 'stopSelected') {
-        setSelectedStopIndex(data.index);
-      } else if (data.action === 'error') {
-        console.error('Error from WebView:', data.message);
-        Alert.alert('Map Error', data.message);
-      } else if (data.action === 'console.log') {
-        console.log('WebView console.log:', data.message);
-      } else if (data.action === 'console.error') {
-        console.error('WebView console.error:', data.message);
-      }
-    } catch (error) {
-      console.error('Error parsing WebView message:', error, event.nativeEvent.data);
-    }
-  };
 
   const renderItem = ({ item }: { item: FavoriteRoute }) => {
     const route = routes.find(r => r.route === item.routeId && r.bound === item.bound);
